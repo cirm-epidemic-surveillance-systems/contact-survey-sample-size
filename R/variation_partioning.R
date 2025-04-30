@@ -127,40 +127,6 @@ r2_lmer_between <- r2_lmer_between / sum(r2_lmer_between)
 r2_lmer_between
 
 
-# # run again adding wave, and then collapsing into over time residual
-# model_lmer <- lmer(
-#   contacts ~ (1|part_age) + (1|part_id) + (1|wave),
-#   data = fc_contact_counts
-# )
-# 
-# sry_lmer <- summary(model_lmer)
-# variances_df <- as.data.frame(sry_lmer$varcor)
-# variances_lmer <- c(
-#   between_age = variances_df$sdcor[2] ^ 2,
-#   between_other = variances_df$sdcor[1] ^ 2,
-#   # wave + residual
-#   within = variances_df$sdcor[3] ^ 2 + variances_df$sdcor[4] ^ 2)
-# r2_lmer <- variances_lmer / sum(variances_lmer)
-# r2_lmer
-# r2_lmer_between <- r2_lmer[1:2]
-# r2_lmer_between <- r2_lmer_between / sum(r2_lmer_between)
-# r2_lmer_between
-
-# 
-# model_lmer_age_only <- lmer(
-#   contacts ~ (1|part_age),
-#   data = fc_contact_counts
-# )
-# 
-# sry_lmer_age_only <- summary(model_lmer_age_only)
-# variances_df <- as.data.frame(sry_lmer_age_only$varcor)
-# variances_lmer <- c(
-#   between_age = variances_df$sdcor[1] ^ 2,
-#   within = variances_df$sdcor[2] ^ 2)
-# r2_lmer_age_only <- variances_lmer / sum(variances_lmer)
-# r2_lmer_age_only
-
-
 # log1p-Gaussian random effects model (not overfitted, more reasonable distribution)
 model_lmer_log <- lmer(
   log1p(contacts) ~ (1|part_age) + (1|part_id),
@@ -179,3 +145,42 @@ r2_lmer_log
 r2_lmer_log_between <- r2_lmer_log[1:2]
 r2_lmer_log_between <- r2_lmer_log_between / sum(r2_lmer_log_between)
 r2_lmer_log_between
+
+
+# sanity check this analysis by permuting the participant IDs
+permute_sim <- function() {
+  
+  fc_contact_counts_permuted <- fc_contact_counts %>%
+    mutate(contacts = sample(contacts))
+  
+  model_lmer <- lmer(
+    contacts ~ (1|part_age) + (1|part_id),
+    data = fc_contact_counts_permuted
+  )
+  
+  sry_lmer <- summary(model_lmer)
+  variances_df <- as.data.frame(sry_lmer$varcor)
+  variances_lmer <- c(
+    between_age = variances_df$sdcor[2] ^ 2,
+    between_other = variances_df$sdcor[1] ^ 2,
+    within = variances_df$sdcor[3] ^ 2)
+  r2_lmer <- variances_lmer / sum(variances_lmer)
+  r2_lmer
+}
+
+sims <- replicate(1000, permute_sim())
+
+hist(sims["between_age", ],
+     xlim = c(0, 0.1),
+     breaks = 100)
+abline(v= r2_lmer["between_age"])
+
+hist(sims["between_other", ],
+     xlim = c(0, 0.5),
+     breaks = 100)
+abline(v= r2_lmer["between_other"])
+
+hist(sims["within", ],
+     xlim = c(0, 1),
+     breaks = 100)
+abline(v= r2_lmer["within"])
