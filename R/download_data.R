@@ -11,9 +11,6 @@
 # data on zenodo here: https://zenodo.org/records/3886590
 fc_dir <- "data/french_connection"
 dir.create(fc_dir, recursive = TRUE, showWarnings = FALSE)
-fc_filepath <- file.path(fc_dir, "everything.zip")
-download.file("https://zenodo.org/api/records/3886590/files-archive",
-              fc_filepath)
-unzip(fc_filepath,
-      exdir = fc_dir)
-
+library("socialmixr")
+survey <- get_survey("https://doi.org/10.5281/zenodo.3886590")
+saveRDS(survey, file.path(fc_dir, "survey.rds"))
