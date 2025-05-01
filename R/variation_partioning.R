@@ -65,48 +65,10 @@ fc_contact_counts <- fc_participants_observed %>%
     .after = part_id
   )
 
-# fc_contact_counts %>%
-#   arrange(
-#     part_id, wave, studyDay
-#   ) %>%
-#   view()
-
-
 # analyse this with a random effects model to capture the within-individual
 # variation, the between-individual variation explained by age, and the residual
 # between-individual variation
 library(lme4)
-# 
-# # Variance (normal assumption) version (overfitted)
-# model_lm <- lm(
-#   contacts ~ part_age + part_id,
-#   data = fc_contact_counts
-# )
-# 
-# sry_lm <- anova(model_lm)
-# 
-# variances <- c(
-#   between_age = sry_lm$`Sum Sq`[1],
-#   between_other = sry_lm$`Sum Sq`[2],
-#   within = sry_lm$`Sum Sq`[3])
-# r2_lm <- variances / sum(variances)
-# r2_lm
-# 
-# # Poisson GLM version (overfitted) 
-# model_glm <- glm(
-#   contacts ~ part_age + part_id,
-#   family = stats::poisson,
-#   data = fc_contact_counts
-# )
-# 
-# sry_glm <- anova(model_glm)
-# deviances <- c(
-#   between_age = sry_glm$Deviance[2],
-#   between_other = sry_glm$Deviance[3],
-#   within = sry_glm$`Resid. Dev`[3])
-# r2_glm <- deviances / sum(deviances)
-# r2_glm
-# 
 
 # Gaussian random effects model (not overfitted, unreasonable distribution?)
 model_lmer <- lmer(
@@ -114,73 +76,139 @@ model_lmer <- lmer(
   data = fc_contact_counts
 )
 
-sry_lmer <- summary(model_lmer)
-variances_df <- as.data.frame(sry_lmer$varcor)
-variances_lmer <- c(
-  between_age = variances_df$sdcor[2] ^ 2,
-  between_other = variances_df$sdcor[1] ^ 2,
-  within = variances_df$sdcor[3] ^ 2)
-r2_lmer <- variances_lmer / sum(variances_lmer)
-r2_lmer
-r2_lmer_between <- r2_lmer[1:2]
-r2_lmer_between <- r2_lmer_between / sum(r2_lmer_between)
-r2_lmer_between
+partition_variance_lmer <- function (model) {
+  model %>%
+    summary() %>%
+    `[[`("varcor") %>%
+    as_tibble() %>%
+    mutate(
+      var = sdcor ^ 2,
+      proportion = var / sum(var)
+    ) %>%
+    select(
+      grp,
+      var,
+      proportion
+    ) %>%
+    mutate(
+      grp = case_when(
+        grp == "part_age" ~ "between ages",
+        grp == "Residual" ~ "within individuals",
+        .default = "between individuals (unexplained)",
+      )
+    ) %>%
+    rename(
+      partition = grp
+    )
+
+}
+
+partioning <- partition_variance_lmer(model_lmer)
 
 
-# log1p-Gaussian random effects model (not overfitted, more reasonable distribution)
-model_lmer_log <- lmer(
-  log1p(contacts) ~ (1|part_age) + (1|part_id),
-  data = fc_contact_counts
+# add a barplot of this
+
+colour_table <- tribble(
+  ~partition, ~colour,
+  "within individuals", "pink",
+  "between individuals (unexplained)", "lightblue",
+  "between ages", "skyblue"
 )
 
-sry_lmer_log <- summary(model_lmer_log)
-variances_df_log <- as.data.frame(sry_lmer_log$varcor)
-variances_lmer_log <- c(
-  between_age = variances_df_log$sdcor[2] ^ 2,
-  between_other = variances_df_log$sdcor[1] ^ 2,
-  within = variances_df_log$sdcor[3] ^ 2)
-r2_lmer_log <- variances_lmer_log / sum(variances_lmer_log)
-r2_lmer_log
+colour_vector <- colour_table %>%
+  pivot_wider(
+    names_from = partition,
+    values_from = colour
+  ) %>%
+  as.vector() %>%
+  do.call(c, .)
 
-r2_lmer_log_between <- r2_lmer_log[1:2]
-r2_lmer_log_between <- r2_lmer_log_between / sum(r2_lmer_log_between)
-r2_lmer_log_between
-
+partioning %>%
+  mutate(
+    partition = factor(partition,
+                       levels = colour_table$partition),
+    study = "France"
+  ) %>%
+  arrange(
+    partition
+  ) %>%
+  # for labels
+  mutate(
+    text_percent = scales::label_percent()(proportion),
+    text_position = rev(cumsum(rev(proportion))) - proportion / 2
+  ) %>%
+  rename(
+    `Variance explained` = proportion,
+    Component = partition
+  ) %>%
+  ggplot(
+    aes(
+      x = study,
+      y = `Variance explained`,
+      fill = Component
+    )
+  ) + 
+  geom_bar(
+    stat = "identity"
+  ) +
+  geom_text(
+    aes(
+      label = text_percent,
+      y = text_position
+    )
+    # vjust = 0.5
+  ) +
+  scale_y_continuous(
+    labels = scales::label_percent()
+  ) +
+  scale_fill_manual(values = colour_vector) +
+  theme_minimal()
 
 # sanity check this analysis by permuting the participant IDs
 permute_sim <- function() {
   
-  fc_contact_counts_permuted <- fc_contact_counts %>%
-    mutate(contacts = sample(contacts))
+  fc_contact_counts %>%
+    mutate(
+      contacts = sample(contacts)
+    ) %>%
+    lmer(
+      contacts ~ (1|part_age) + (1|part_id),
+      data = .
+    ) %>%
+    partition_variance_lmer() %>%
+    select(-var) %>%
+    pivot_wider(
+      names_from = "partition",
+      values_from = "proportion"
+    )
   
-  model_lmer <- lmer(
-    contacts ~ (1|part_age) + (1|part_id),
-    data = fc_contact_counts_permuted
-  )
-  
-  sry_lmer <- summary(model_lmer)
-  variances_df <- as.data.frame(sry_lmer$varcor)
-  variances_lmer <- c(
-    between_age = variances_df$sdcor[2] ^ 2,
-    between_other = variances_df$sdcor[1] ^ 2,
-    within = variances_df$sdcor[3] ^ 2)
-  r2_lmer <- variances_lmer / sum(variances_lmer)
-  r2_lmer
 }
 
-sims <- replicate(1000, permute_sim())
+sims_list <- replicate(50,
+                  permute_sim(),
+                  simplify = FALSE)
+sims_df <- do.call(bind_rows, sims_list)
 
-hist(sims["between_age", ],
-     xlim = c(0, 0.1),
-     breaks = 100)
-abline(v= r2_lmer["between_age"])
+partitions <- colnames(partioning)
+par(mfrow = c(length(partitions), 1))
 
-hist(sims["between_other", ],
-     xlim = c(0, 0.5),
-     breaks = 100)
-abline(v= r2_lmer["between_other"])
+for (partition in partitions) {
+  perturbed_props <- sims_df[[partition]]
+  estimated_prop <- partioning[[partition]]
+  
+  xlim <- range(c(perturbed_props, estimated_prop))
+  
+  hist(perturbed_props,
+       xlim = xlim,
+       breaks = 100,
+       xlab = "Proportion",
+       main = partition)
+  abline(v = estimated_prop)
+}
 
-hist(sims["within", ],
-     xlim = c(0, 1),
-     breaks = 100)
-abline(v= r2_lmer["within"])
+# plot variance partitioning as a bar
+
+# add participant characteristics to model to explain remaining between
+# individual variance in contacts
+
+# add a barplot of this alongside
