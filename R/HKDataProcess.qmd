@@ -5,8 +5,9 @@ format: html
 
 ```{r}
 library(tidyverse)
+library(RCurl)
 
-HK<-read_csv('../data/HongKongData.csv')
+HK<-read_csv('../HongKongData.csv')
 
 HK |>  select(part_id=pid,part_age = age,gender = sex,contacts = n.contact.total) |> 
   mutate(part_id = as_factor(part_id),
@@ -14,7 +15,5 @@ HK |>  select(part_id=pid,part_age = age,gender = sex,contacts = n.contact.total
          gender = as_factor(gender)) -> HKclean
 
 
-
-  
 ```
 
