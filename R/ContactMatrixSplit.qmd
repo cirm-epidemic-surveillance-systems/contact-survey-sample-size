@@ -1,0 +1,86 @@
+---
+title: "ContactMatrixSplit"
+format: html
+---
+
+
+```{r}
+library(tidyverse)
+
+sd_param = 1
+
+
+#supporting function for quantizing
+
+MeasureMeanByContactQuantile<-function(contacts,N_quantiles){
+  contacts |> 
+    mutate(MeansByQuantile = ntile(X,N_quantiles)) |> 
+    group_by(MeansByQuantile) |> 
+    summarise(MeansByQuantile = mean(X)) |> 
+    mutate(Quantile = row_number())->tmp
+  return(tmp)
+}
+
+
+
+```
+
+
+```{r}
+
+GenerateProportionateMixingMatrix <-function(s){
+  SumDegree = sum(s$MeansByQuantile)
+  cross_join(s,s)|> 
+    mutate(Product = MeansByQuantile.x*MeansByQuantile.y)|> 
+    select(From = Quantile.x, To = Quantile.y,Product)|> 
+    mutate(Product = Product/SumDegree)|> 
+    rename(Weight = Product)->tmp
+  
+  return(tmp)
+}
+```
+
+```{r}
+GenerateFullyAssortativeMixingMatrix <-function(s){
+
+  cross_join(s,s)|>
+    rename(From = Quantile.x, To = Quantile.y)|> 
+    mutate(Weight = ifelse(From == To, MeansByQuantile.x,0 )) |> 
+    select(From,To,Weight)->tmp
+return(tmp)    
+}
+```
+
+```{r}
+#wrapper function
+
+GenerateMatrix<-function(sigma = 1,number_of_quantiles = 2, assort=1){
+    #sigma is the normal distribution standard deviation
+    #alpha is the amount of assortativity
+    as_tibble(x=exp(rnorm(n=1000000))) |> 
+      rename(X=value)-> normal_dist_test.df
+    
+    MeasureMeanByContactQuantile(normal_dist_test.df,number_of_quantiles)->s
+
+    AssortativeMatrix<-GenerateFullyAssortativeMatrix(s)
+    ProportionateMatrix<-GenerateProportionateMixingMatrix(s)
+    
+    AssortativeMatrix
+    ProportionateMatrix
+    
+    AssortativeMatrix |> 
+      rename(Weight_Assortative=Weight) |> 
+      mutate(Weight_Proportionate = ProportionateMatrix$Weight) |> 
+      mutate(WeightCombined = assort*Weight_Assortative + (1-assort)*Weight_Proportionate) |> 
+      select(From,To,WeightCombined) -> CombinedMatrix
+
+return(CombinedMatrix)
+}
+
+
+
+GenerateMatrix(assort = 1,number_of_quantiles = 3)
+
+```
+
+
