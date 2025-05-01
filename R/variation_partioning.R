@@ -12,7 +12,11 @@ fc_participants_extra <- read_csv("data/french_connection/2015_Beraud_France_par
 # get all observed combinations of participant and wave, to pad contacts with 0s
 fc_participants_observed <- fc_participants_extra %>%
   select(part_id,
-         wave) %>%
+         wave,
+         participant_occupation) %>%
+  rename(
+    part_occupation = participant_occupation 
+  ) %>%
   expand_grid(
     studyDay = 1:2
   ) %>%
@@ -21,8 +25,7 @@ fc_participants_observed <- fc_participants_extra %>%
     by = "part_id"
   ) %>%
   select(
-    -hh_id,
-    -part_gender
+    -hh_id
   )
 
 # contact events
@@ -57,11 +60,15 @@ fc_contact_counts <- fc_participants_observed %>%
   mutate(
     part_id = factor(part_id),
     part_age = factor(part_age),
+    part_gender = factor(part_gender),
+    part_occupation = factor(part_occupation),
     wave = factor(wave),
     studyDay = factor(studyDay)
   ) %>%
   relocate(
     part_age,
+    part_gender,
+    part_occupation,
     .after = part_id
   )
 
@@ -72,7 +79,10 @@ library(lme4)
 
 # Gaussian random effects model (not overfitted, unreasonable distribution?)
 model_lmer <- lmer(
-  contacts ~ (1|part_age) + (1|part_id),
+  contacts ~ (1|part_age) +
+    (1|part_gender) +
+    (1|part_occupation) +
+    (1|part_id),
   data = fc_contact_counts
 )
 
@@ -93,6 +103,8 @@ partition_variance_lmer <- function (model) {
     mutate(
       grp = case_when(
         grp == "part_age" ~ "between ages",
+        grp == "part_gender" ~ "between genders",
+        grp == "part_occupation" ~ "between occupations",
         grp == "Residual" ~ "within individuals",
         .default = "between individuals (unexplained)",
       )
@@ -107,12 +119,13 @@ partioning <- partition_variance_lmer(model_lmer)
 
 
 # add a barplot of this
-
 colour_table <- tribble(
   ~partition, ~colour,
   "within individuals", "pink",
-  "between individuals (unexplained)", "lightblue",
-  "between ages", "skyblue"
+  "between individuals (unexplained)", scales::alpha("blue", 0.1),
+  "between genders", scales::alpha("blue", 0.4),
+  "between ages", scales::alpha("blue", 0.5),
+  "between occupations", scales::alpha("blue", 0.6)
 )
 
 colour_vector <- colour_table %>%
@@ -206,9 +219,5 @@ for (partition in partitions) {
   abline(v = estimated_prop)
 }
 
-# plot variance partitioning as a bar
-
 # add participant characteristics to model to explain remaining between
 # individual variance in contacts
-
-# add a barplot of this alongside
