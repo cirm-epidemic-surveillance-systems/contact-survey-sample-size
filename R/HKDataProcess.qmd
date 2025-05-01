@@ -1,0 +1,20 @@
+---
+title: "HKDataProcess"
+format: html
+---
+
+```{r}
+library(tidyverse)
+
+HK<-read_csv('../data/HongKongData.csv')
+
+HK |>  select(part_id=pid,part_age = age,gender = sex,contacts = n.contact.total) |> 
+  mutate(part_id = as_factor(part_id),
+         part_age = as_factor(part_age),
+         gender = as_factor(gender)) -> HKclean
+
+
+
+  
+```
+

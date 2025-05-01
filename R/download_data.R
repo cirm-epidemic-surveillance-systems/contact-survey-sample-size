@@ -17,3 +17,9 @@ download.file("https://zenodo.org/api/records/3886590/files-archive",
 unzip(fc_filepath,
       exdir = fc_dir)
 
+# Download Hong Kong Survey data 
+hk_dir <-"data/hongkong"
+dir.create(hk_dir,recursive = TRUE, showWarnings = FALSE)
+hk_filepath <-file.path(hk_dir,"HongKongData.csv")
+download.file("https://royalsocietypublishing.org/action/downloadSupplement?doi=10.1098%2Frsif.2017.0838&file=rsif20170838supp2.csv",
+              hk_filepath)
