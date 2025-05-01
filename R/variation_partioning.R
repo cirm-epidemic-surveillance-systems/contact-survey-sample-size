@@ -1,7 +1,93 @@
 # Analyse partitioning of variation in contact rates (within/between individuals
 # and strata)
 
+# given a fitted random effects model, perfrom the variance partitioning
+partition_variance_lmer <- function (model) {
+  model %>%
+    summary() %>%
+    `[[`("varcor") %>%
+    as_tibble() %>%
+    mutate(
+      var = sdcor ^ 2,
+      proportion = var / sum(var)
+    ) %>%
+    select(
+      grp,
+      var,
+      proportion
+    ) %>%
+    mutate(
+      grp = case_when(
+        grp == "part_age" ~ "between ages",
+        grp == "part_gender" ~ "between genders",
+        grp == "part_occupation" ~ "between occupations",
+        grp == "Residual" ~ "within individuals",
+        .default = "between individuals (unexplained)",
+      )
+    ) %>%
+    rename(
+      partition = grp
+    )
+  
+}
+
+make_barplot <- function(partitioning) {
+  
+  # set up colour palette for bar charts
+  colour_palette <- c(
+    "within individuals" = "pink",
+    "between individuals (unexplained)" = scales::alpha("blue", 0.1),
+    "between genders" = scales::alpha("blue", 0.4),
+    "between ages" = scales::alpha("blue", 0.5),
+    "between occupations" =  scales::alpha("blue", 0.6)
+  )
+  
+  partitioning %>%
+    # set the factor order for partition to how we want to plot it
+    mutate(
+      partition = factor(partition,
+                         levels = names(colour_palette))
+    ) %>%
+    # sort by partition (to the factor order), so we can place the labels in the
+    # right places
+    arrange(
+      partition
+    ) %>%
+    # for labels
+    mutate(
+      text_percent = scales::label_percent()(proportion),
+      text_position = rev(cumsum(rev(proportion))) - proportion / 2
+    ) %>%
+    # make some better names
+    rename(
+      `Variance explained` = proportion,
+      Component = partition
+    ) %>%
+    ggplot(
+      aes(
+        x = Study,
+        y = `Variance explained`,
+        fill = Component
+      )
+    ) + 
+    geom_bar(
+      stat = "identity"
+    ) +
+    geom_text(
+      aes(
+        label = text_percent,
+        y = text_position
+      )
+    ) +
+    scale_y_continuous(
+      labels = scales::label_percent()
+    ) +
+    scale_fill_manual(values = colour_palette) +
+    theme_minimal()
+}
+
 library(tidyverse)
+library(patchwork)
 
 # load relevant French Connection data
 
@@ -77,8 +163,21 @@ fc_contact_counts <- fc_participants_observed %>%
 # between-individual variation
 library(lme4)
 
-# Gaussian random effects model (not overfitted, unreasonable distribution?)
-model_lmer <- lmer(
+# Gaussian random effects model, with only age, and between vs within individual
+# effects
+fc_model_lmer_none <- lmer(
+  contacts ~ (1|part_id),
+  data = fc_contact_counts
+)
+
+fc_model_lmer_age <- lmer(
+  contacts ~ (1|part_age) +
+    (1|part_id),
+  data = fc_contact_counts
+)
+
+# the same but with gender and occupation (confounded)
+fc_model_lmer_all <- lmer(
   contacts ~ (1|part_age) +
     (1|part_gender) +
     (1|part_occupation) +
@@ -86,96 +185,32 @@ model_lmer <- lmer(
   data = fc_contact_counts
 )
 
-partition_variance_lmer <- function (model) {
-  model %>%
-    summary() %>%
-    `[[`("varcor") %>%
-    as_tibble() %>%
-    mutate(
-      var = sdcor ^ 2,
-      proportion = var / sum(var)
-    ) %>%
-    select(
-      grp,
-      var,
-      proportion
-    ) %>%
-    mutate(
-      grp = case_when(
-        grp == "part_age" ~ "between ages",
-        grp == "part_gender" ~ "between genders",
-        grp == "part_occupation" ~ "between occupations",
-        grp == "Residual" ~ "within individuals",
-        .default = "between individuals (unexplained)",
-      )
-    ) %>%
-    rename(
-      partition = grp
-    )
-
-}
-
-partioning <- partition_variance_lmer(model_lmer)
-
-
-# add a barplot of this
-colour_table <- tribble(
-  ~partition, ~colour,
-  "within individuals", "pink",
-  "between individuals (unexplained)", scales::alpha("blue", 0.1),
-  "between genders", scales::alpha("blue", 0.4),
-  "between ages", scales::alpha("blue", 0.5),
-  "between occupations", scales::alpha("blue", 0.6)
+# do variance partitioning on each, combining across studies
+partitioning_none <- bind_rows(
+  France = partition_variance_lmer(fc_model_lmer_none),
+  .id = "Study"
 )
 
-colour_vector <- colour_table %>%
-  pivot_wider(
-    names_from = partition,
-    values_from = colour
-  ) %>%
-  as.vector() %>%
-  do.call(c, .)
+partitioning_age <- bind_rows(
+  France = partition_variance_lmer(fc_model_lmer_age),
+  .id = "Study"
+)
 
-partioning %>%
-  mutate(
-    partition = factor(partition,
-                       levels = colour_table$partition),
-    study = "France"
-  ) %>%
-  arrange(
-    partition
-  ) %>%
-  # for labels
-  mutate(
-    text_percent = scales::label_percent()(proportion),
-    text_position = rev(cumsum(rev(proportion))) - proportion / 2
-  ) %>%
-  rename(
-    `Variance explained` = proportion,
-    Component = partition
-  ) %>%
-  ggplot(
-    aes(
-      x = study,
-      y = `Variance explained`,
-      fill = Component
-    )
-  ) + 
-  geom_bar(
-    stat = "identity"
-  ) +
-  geom_text(
-    aes(
-      label = text_percent,
-      y = text_position
-    )
-    # vjust = 0.5
-  ) +
-  scale_y_continuous(
-    labels = scales::label_percent()
-  ) +
-  scale_fill_manual(values = colour_vector) +
-  theme_minimal()
+partitioning_all <- bind_rows(
+  France = partition_variance_lmer(fc_model_lmer_all),
+  .id = "Study"
+)
+
+barplot_none <- make_barplot(partitioning_none) +
+  ggtitle(label = "no covariates")
+barplot_age <- make_barplot(partitioning_age) +
+  ggtitle(label = "age only")
+barplot_all <- make_barplot(partitioning_all) +
+  ggtitle(label = "age, gender, and occupation")
+
+
+(barplot_none / barplot_age / barplot_all) +
+  plot_annotation(title = "Partitioning variance in daily contact rates")
 
 # sanity check this analysis by permuting the participant IDs
 permute_sim <- function() {
@@ -202,12 +237,14 @@ sims_list <- replicate(50,
                   simplify = FALSE)
 sims_df <- do.call(bind_rows, sims_list)
 
-partitions <- colnames(partioning)
+partitions <- partitioning_age$partition
 par(mfrow = c(length(partitions), 1))
 
-for (partition in partitions) {
-  perturbed_props <- sims_df[[partition]]
-  estimated_prop <- partioning[[partition]]
+for (this_partition in partitions) {
+  perturbed_props <- sims_df[[this_partition]]
+  estimated_prop <- partitioning_age %>%
+    filter(partition == this_partition) %>%
+    pull(proportion)
   
   xlim <- range(c(perturbed_props, estimated_prop))
   
@@ -215,9 +252,6 @@ for (partition in partitions) {
        xlim = xlim,
        breaks = 100,
        xlab = "Proportion",
-       main = partition)
+       main = this_partition)
   abline(v = estimated_prop)
 }
-
-# add participant characteristics to model to explain remaining between
-# individual variance in contacts
