@@ -7,10 +7,10 @@ library(patchwork)
 source("R/functions.R")
 
 # load the processed French Connection data
-fc_contact_counts <- process_fc_data()
+fc_contact_counts <- process_fc_data_varpart()
 
 # and the Hong Kong data
-hk_contact_counts <- process_hk_data()
+hk_contact_counts <- process_hk_data_varpart()
 
 # analyse this with a random effects model to capture the within-individual
 # variation, the between-individual variation explained by age, and the residual
