@@ -7,9 +7,6 @@ format: html
 ```{r}
 library(tidyverse)
 
-sd_param = 1
-
-
 #supporting function for quantizing
 
 MeasureMeanByContactQuantile<-function(contacts,N_quantiles){
@@ -20,8 +17,6 @@ MeasureMeanByContactQuantile<-function(contacts,N_quantiles){
     mutate(Quantile = row_number())->tmp
   return(tmp)
 }
-
-
 
 ```
 
@@ -79,8 +74,83 @@ return(CombinedMatrix)
 
 
 
-GenerateMatrix(assort = 1,number_of_quantiles = 3)
+GenerateMatrix(assort = 1,number_of_quantiles = 3)->M
+# works
+```
+
+##Calculate the eigenvalues
+
+```{r}
+library(usedist)
+MatrixToEigenvalue<-function(M,eigen_value = 1{
+  #M is the matrix in long format, eigen_value is which eigenvalue to extract 
+  #defaults to eigen_value = 1 for the dominant 
+  M |> pivot_to_numeric_matrix(From, To, WeightCombined) |> 
+    eigen()->decomp 
+  tmp = decomp$values[eigen_value]
+  return(tmp)  
+}
+
+MatrixToEigenvalue(M,eigen_value=1)
+```
+
+
+```{r}
+library(purrr)
+library(furrr)
+plan(multisession, workers = 12)
+
+
+MapToEigen<-function(assort = 1,number_of_quantiles = 3,eigen_value=1,beta = 1){
+  GenerateMatrix(assort = assort,number_of_quantiles = number_of_quantiles)->M 
+  M |> mutate(WeightCombined = WeightCombined*beta)
+  MatrixToEigenvalue(M,eigen_value=eigen_value)->tmp
+  return(tmp)
+}
+
+MapToEigen(assort = 1, number_of_quantiles = 3)
+
+expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,10,1))|> 
+  mutate(tmp = map2(Assort,Bins, ~MapToEigen(assort = .x, number_of_quantiles = .y))) |> 
+  unnest(tmp)->Output
+
+
+Output |> 
+  select(Assort,Bins,Eigenvalue=tmp) |> 
+  mutate(Bins = as_factor(Bins))|> 
+  ggplot(aes(x=Assort,y=Eigenvalue,colour = Bins))+
+  geom_line()+
+  geom_point()+
+  xlab('Assortativity')
+  
+  
+```
+## Better figure
+
+
+
+Scale of the issues
+```{r}
+library(cowplot)
+expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,2000,20))|> 
+  mutate(tmp = map2(Assort,Bins, ~MapToEigen(assort = .x, number_of_quantiles = .y))) |> 
+  unnest(tmp)->Output
+
+Output |> 
+  select(Assort,Bins,Eigenvalue=tmp) |> 
+  mutate(Bins = as_factor(Bins))|> 
+  ggplot(aes(x=Assort,y=Eigenvalue,colour = Bins))+
+  geom_line()+
+  geom_point()+
+  xlab('Assortativity')+
+  theme_minimal_grid()
+
 
 ```
 
+#Effect of R
+
+```{r}
+
+```
 
