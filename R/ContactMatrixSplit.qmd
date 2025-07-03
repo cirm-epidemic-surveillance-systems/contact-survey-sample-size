@@ -82,7 +82,7 @@ GenerateMatrix(assort = 1,number_of_quantiles = 3)->M
 
 ```{r}
 library(usedist)
-MatrixToEigenvalue<-function(M,eigen_value = 1{
+MatrixToEigenvalue<-function(M,eigen_value = 1){
   #M is the matrix in long format, eigen_value is which eigenvalue to extract 
   #defaults to eigen_value = 1 for the dominant 
   M |> pivot_to_numeric_matrix(From, To, WeightCombined) |> 
@@ -132,8 +132,8 @@ Output |>
 Scale of the issues
 ```{r}
 library(cowplot)
-expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,2000,20))|> 
-  mutate(tmp = map2(Assort,Bins, ~MapToEigen(assort = .x, number_of_quantiles = .y))) |> 
+expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,100,1))|> 
+  mutate(tmp = future_map2(Assort,Bins, ~MapToEigen(assort = .x, number_of_quantiles = .y))) |> 
   unnest(tmp)->Output
 
 Output |> 
