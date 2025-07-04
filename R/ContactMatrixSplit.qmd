@@ -57,7 +57,7 @@ GenerateMatrix<-function(sigma = 1,number_of_quantiles = 2, assort=1){
     
     MeasureMeanByContactQuantile(normal_dist_test.df,number_of_quantiles)->s
 
-    AssortativeMatrix<-GenerateFullyAssortativeMatrix(s)
+    AssortativeMatrix<-GenerateFullyAssortativeMixingMatrix(s)
     ProportionateMatrix<-GenerateProportionateMixingMatrix(s)
     
     AssortativeMatrix
