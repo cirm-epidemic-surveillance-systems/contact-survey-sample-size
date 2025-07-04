@@ -17,6 +17,54 @@ hk_contact_counts <- process_hk_data_varpart()
 # between-individual variation
 library(lme4)
 
+
+# model age first,then add estimates as an offset 
+
+fc_model_lmer_only_age <- lmer(
+  log1p(contacts) ~ (1|part_age),
+  data = fc_contact_counts
+)
+
+age_offset_lookup <- fc_model_lmer_only_age %>%
+  coef %>%
+  `$`(part_age) %>%
+  tibble(
+    part_age = rownames(.),
+    offset = .[, 1]
+  ) %>%
+  select(-`(Intercept)`)
+
+fc_contact_counts_age_est <- fc_contact_counts %>%
+  left_join(age_offset_lookup,
+            by = "part_age")
+
+fc_model_lmer_part_given_age <- lmer(
+  log1p(contacts) ~ (1|part_id) + offset(offset),
+  data = fc_contact_counts_age_est
+)
+
+fc_model_lmer_only_age
+# 0.2154 sd age
+# 0.6929 sd other
+fc_model_lmer_part_given_age
+# (of the other)
+# 0.4181 sd participant
+# 0.5478 participant
+
+
+age_frac <- (0.2154^2) / (0.2154^2 + 0.6929^2)
+non_age_frac <- 1 - age_frac
+
+part_frac_of_other <- (0.4181^2) / (0.4181^2 + 0.5478^2)
+non_part_frac_of_other <- 1 - part_frac_of_other
+
+part_frac <- non_age_frac * part_frac_of_other
+within_frac <- non_age_frac * non_part_frac_of_other
+
+within_frac # 58%
+part_frac # 33%
+age_frac # 9%
+
 # Gaussian random effects model, with only age, and between vs within individual
 # effects
 fc_model_lmer_none <- lmer(
