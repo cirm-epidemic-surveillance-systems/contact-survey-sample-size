@@ -10,15 +10,13 @@ source("functions.R")
 ```
 
 ```{r}
-
-generate_matrix(assort = 1,number_of_quantiles = 3)->M
-# works
+M <- generate_matrix(assort = 1, number_of_quantiles = 3)
 ```
 
-##Calculate the eigenvalues
+## Calculate the eigenvalues
 
 ```{r}
-matrix_to_eigenvalue(M,eigen_value=1)
+matrix_to_eigenvalue(M, eigen_value = 1)
 ```
 
 
@@ -27,41 +25,84 @@ plan(multisession, workers = 12)
 
 map_to_eigen(assort = 1, number_of_quantiles = 3)
 
-expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,10,1))|> 
-  mutate(tmp = map2(Assort,Bins, ~map_to_eigen(assort = .x, number_of_quantiles = .y))) |> 
-  unnest(tmp)->Output
+output <- expand_grid(
+  assort = seq(0, 1, 0.1),
+  bins = seq(1, 10, 1)
+)|> 
+  mutate(
+    tmp = map2(assort,
+               bins,
+               ~ map_to_eigen(assort = .x,
+                             number_of_quantiles = .y))
+  ) |> 
+  unnest(
+    tmp
+  )
 
-Output |> 
-  select(Assort,Bins,Eigenvalue=tmp) |> 
-  mutate(Bins = as_factor(Bins))|> 
-  ggplot(aes(x=Assort,y=Eigenvalue,colour = Bins))+
-  geom_line()+
-  geom_point()+
-  xlab('Assortativity')
+output |> 
+  select(
+    assort,
+    bins,
+    eigenvalue = tmp
+  ) |> 
+  mutate(
+    bins = as_factor(bins)
+  )|> 
+  ggplot(
+    aes(
+      x = assort,
+      y = eigenvalue,
+      colour = bins)
+  ) +
+  geom_line() +
+  geom_point() +
+  xlab("Assortativity")
   
 ```
 ## Better figure
 
-
-
 Scale of the issues
 ```{r}
-expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,100,1))|> 
-  mutate(tmp = future_map2(Assort,Bins, ~map_to_eigen(assort = .x, number_of_quantiles = .y))) |> 
-  unnest(tmp)->Output
+output <- expand_grid(
+  assort = seq(0, 1, 0.1),
+  bins = seq(1, 100, 1)
+) |> 
+  mutate(
+    tmp = future_map2(
+      assort,
+      bins,
+      ~map_to_eigen(
+        assort = .x,
+        number_of_quantiles = .y))
+  ) |> 
+  unnest(
+    tmp
+  )
 
-Output |> 
-  select(Assort,Bins,Eigenvalue=tmp) |> 
-  mutate(Bins = as_factor(Bins))|> 
-  ggplot(aes(x=Assort,y=Eigenvalue,colour = Bins))+
-  geom_line()+
-  geom_point()+
-  xlab('Assortativity')+
+output |> 
+  select(
+    assort,
+    bins,
+    eigenvalue = tmp
+  ) |> 
+  mutate(
+    bins = as_factor(bins)
+  ) |> 
+  ggplot(
+    aes(
+      x = assort,
+      y = eigenvalue,
+      colour = bins
+    )
+  )+
+  geom_line() +
+  geom_point() +
+  xlab("Assortativity") +
   theme_minimal_grid()
 
 ```
 
-#Effect of R
+# Effect of R
 
 ```{r}
 

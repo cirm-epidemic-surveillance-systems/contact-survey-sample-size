@@ -7,12 +7,21 @@ format: html
 # load packages and functions
 source("packages.R")
 source("functions.R")
-HK<-read_csv('../data/hongkong/HongKongData.csv')
 
-HK |>  select(part_id=pid,part_age = age,gender = sex,contacts = n.contact.total) |> 
-  mutate(part_id = as_factor(part_id),
-         part_age = as_factor(part_age),
-         gender = as_factor(gender)) -> HKclean
+HK <- read_csv("../data/hongkong/HongKongData.csv")
+
+HKclean <- HK |>
+  select(
+    part_id = pid,
+    part_age = age,
+    gender = sex,
+    contacts = n.contact.total
+  ) |> 
+  mutate(
+    part_id = as_factor(part_id),
+    part_age = as_factor(part_age),
+    gender = as_factor(gender)
+  )
 
 
 ```
