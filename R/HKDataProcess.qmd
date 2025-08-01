@@ -4,10 +4,10 @@ format: html
 ---
 
 ```{r}
-library(tidyverse)
-library(RCurl)
-
-HK<-read_csv('../HongKongData.csv')
+# load packages and functions
+source("packages.R")
+source("functions.R")
+HK<-read_csv('../data/hongkong/HongKongData.csv')
 
 HK |>  select(part_id=pid,part_age = age,gender = sex,contacts = n.contact.total) |> 
   mutate(part_id = as_factor(part_id),

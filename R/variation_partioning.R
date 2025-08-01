@@ -1,9 +1,8 @@
 # Analyse partitioning of variation in contact rates (within/between individuals
 # and strata)
 
-library(tidyverse)
-library(patchwork)
-
+# load packages and functions
+source("R/packages.R")
 source("R/functions.R")
 
 # load the processed French Connection data
@@ -15,7 +14,6 @@ hk_contact_counts <- process_hk_data_varpart()
 # analyse this with a random effects model to capture the within-individual
 # variation, the between-individual variation explained by age, and the residual
 # between-individual variation
-library(lme4)
 
 
 # model age first,then add estimates as an offset 
@@ -151,24 +149,6 @@ ggsave("figures/varpart_all.png",
 
 
 # sanity check this analysis by permuting the participant IDs
-permute_sim <- function() {
-  
-  fc_contact_counts %>%
-    mutate(
-      contacts = sample(contacts)
-    ) %>%
-    lmer(
-      log1p(contacts) ~ (1|part_age) + (1|part_id),
-      data = .
-    ) %>%
-    partition_variance_lmer() %>%
-    select(-var) %>%
-    pivot_wider(
-      names_from = "partition",
-      values_from = "proportion"
-    )
-  
-}
 
 sims_list <- replicate(50,
                   permute_sim(),

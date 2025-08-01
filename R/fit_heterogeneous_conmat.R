@@ -1,11 +1,9 @@
 # Fit a modified conmat model to the French Connection dataset, including
 # participant ID as a random effect
 
-library(tidyverse)
-
+# load packages and functions
+source("R/packages.R")
 source("R/functions.R")
-
-library(conmat)
 
 # Load FC data with the contact ages, and rename things to those expected by
 # conmat

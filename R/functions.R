@@ -283,3 +283,103 @@ process_fc_data_conmat <- function() {
     )
 }
 
+#supporting function for quantizing
+MeasureMeanByContactQuantile<-function(contacts,N_quantiles){
+  contacts |> 
+    mutate(MeansByQuantile = ntile(X,N_quantiles)) |> 
+    group_by(MeansByQuantile) |> 
+    summarise(MeansByQuantile = mean(X)) |> 
+    mutate(Quantile = row_number())->tmp
+  return(tmp)
+}
+
+GenerateProportionateMixingMatrix <-function(s){
+  SumDegree = sum(s$MeansByQuantile)
+  cross_join(s,s)|> 
+    mutate(Product = MeansByQuantile.x*MeansByQuantile.y)|> 
+    select(From = Quantile.x, To = Quantile.y,Product)|> 
+    mutate(Product = Product/SumDegree)|> 
+    rename(Weight = Product)->tmp
+  
+  return(tmp)
+}
+
+GenerateFullyAssortativeMixingMatrix <-function(s){
+  
+  cross_join(s,s)|>
+    rename(From = Quantile.x, To = Quantile.y)|> 
+    mutate(Weight = ifelse(From == To, MeansByQuantile.x,0 )) |> 
+    select(From,To,Weight)->tmp
+  return(tmp)    
+}
+
+#wrapper function
+
+GenerateMatrix<-function(sigma = 1,number_of_quantiles = 2, assort=1){
+  #sigma is the normal distribution standard deviation
+  #alpha is the amount of assortativity
+  as_tibble(x=exp(rnorm(n=1000000))) |> 
+    rename(X=value)-> normal_dist_test.df
+  
+  MeasureMeanByContactQuantile(normal_dist_test.df,number_of_quantiles)->s
+  
+  AssortativeMatrix<-GenerateFullyAssortativeMixingMatrix(s)
+  ProportionateMatrix<-GenerateProportionateMixingMatrix(s)
+  
+  AssortativeMatrix
+  ProportionateMatrix
+  
+  AssortativeMatrix |> 
+    rename(Weight_Assortative=Weight) |> 
+    mutate(Weight_Proportionate = ProportionateMatrix$Weight) |> 
+    mutate(WeightCombined = assort*Weight_Assortative + (1-assort)*Weight_Proportionate) |> 
+    select(From,To,WeightCombined) -> CombinedMatrix
+  
+  return(CombinedMatrix)
+}
+
+MatrixToEigenvalue<-function(M,eigen_value = 1){
+  #M is the matrix in long format, eigen_value is which eigenvalue to extract 
+  #defaults to eigen_value = 1 for the dominant 
+  M |> usedist::pivot_to_numeric_matrix(From, To, WeightCombined) |> 
+    eigen()->decomp 
+  tmp = decomp$values[eigen_value]
+  return(tmp)  
+}
+
+MapToEigen<-function(assort = 1,number_of_quantiles = 3,eigen_value=1,beta = 1){
+  GenerateMatrix(assort = assort,number_of_quantiles = number_of_quantiles)->M 
+  M |> mutate(WeightCombined = WeightCombined*beta)
+  MatrixToEigenvalue(M,eigen_value=eigen_value)->tmp
+  return(tmp)
+}
+
+# sanity check contact variance analysis by permuting the participant IDs
+permute_sim <- function() {
+  
+  fc_contact_counts %>%
+    mutate(
+      contacts = sample(contacts)
+    ) %>%
+    lmer(
+      log1p(contacts) ~ (1|part_age) + (1|part_id),
+      data = .
+    ) %>%
+    partition_variance_lmer() %>%
+    select(-var) %>%
+    pivot_wider(
+      names_from = "partition",
+      values_from = "proportion"
+    )
+  
+}
+
+# make a proportionate mixing contact matrix from class contact rates
+make_contact_matrix <- function(class_means) {
+  class_means %*% t(class_means) / sum(class_means)
+}
+
+# get the dominant eigenvalue of a matrix
+get_eigenval <- function(matrix) {
+  Re(eigen(matrix)$values[1])
+}

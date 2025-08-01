@@ -14,13 +14,13 @@ Below is an empirical demonstration that the random effects model we are using c
 
 ## Data
 
-Load some packages and set the RNG seed
+Load packages, functions, and set the RNG seed
 
 ```{r}
 #| message: false
 #| warning: false
-library(tidyverse)
-library(lme4)
+source("packages.R")
+source("functions.R")
 set.seed(2025-05-08)
 ```
 
@@ -177,17 +177,6 @@ classes_sample
 ```
 
 Now we can create contact matrices and compute dominant eigenvalues, which match the expected values.
-
-Here are the functions:
-
-```{r}
-make_contact_matrix <- function(class_means) {
-  class_means %*% t(class_means) / sum(class_means)
-}
-get_eigenval <- function(matrix) {
-  Re(eigen(matrix)$values[1])
-}
-```
 
 For case 1, the eigenvalue is (approximately) 5, as expected.
 
