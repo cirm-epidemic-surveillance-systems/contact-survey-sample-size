@@ -23,16 +23,16 @@ fc_model_lmer_only_age <- lmer(
   data = fc_contact_counts
 )
 
-age_offset_lookup <- fc_model_lmer_only_age %>%
-  coef %>%
-  `$`(part_age) %>%
+age_offset_lookup <- fc_model_lmer_only_age |>
+  coef |>
+  `$`(part_age) |>
   tibble(
     part_age = rownames(.),
     offset = .[, 1]
-  ) %>%
+  ) |>
   select(-`(Intercept)`)
 
-fc_contact_counts_age_est <- fc_contact_counts %>%
+fc_contact_counts_age_est <- fc_contact_counts |>
   left_join(age_offset_lookup,
             by = "part_age")
 
@@ -160,8 +160,8 @@ par(mfrow = c(length(partitions), 1))
 
 for (this_partition in partitions) {
   perturbed_props <- sims_df[[this_partition]]
-  estimated_prop <- partitioning_age %>%
-    filter(partition == this_partition) %>%
+  estimated_prop <- partitioning_age |>
+    filter(partition == this_partition) |>
     pull(proportion)
   
   xlim <- range(c(perturbed_props, estimated_prop))

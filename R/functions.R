@@ -7,20 +7,20 @@ process_fc_data_varpart <- function() {
   fc_participants_extra <- read_csv("data/french_connection/2015_Beraud_France_participant_extra.csv")
   
   # get all observed combinations of participant and wave, to pad contacts with 0s
-  fc_participants_observed <- fc_participants_extra %>%
+  fc_participants_observed <- fc_participants_extra |>
     select(part_id,
            wave,
-           participant_occupation) %>%
+           participant_occupation) |>
     rename(
       part_occupation = participant_occupation 
-    ) %>%
+    ) |>
     expand_grid(
       studyDay = 1:2
-    ) %>%
+    ) |>
     left_join(
       fc_participants,
       by = "part_id"
-    ) %>%
+    ) |>
     select(
       -hh_id
     )
@@ -31,28 +31,28 @@ process_fc_data_varpart <- function() {
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay
-  fc_contacts_sry <- fc_contacts %>%
+  fc_contacts_sry <- fc_contacts |>
     # add on wave and day columns
     left_join(fc_contacts_extra,
-              by = "cont_id") %>%
+              by = "cont_id") |>
     # count contacts per participant/wave/day
     group_by(
       part_id,
       wave,
       studyDay
-    ) %>%
+    ) |>
     summarise(
       contacts = n(),
       .groups = "drop"
     )
   
   # add observed contacts, fill in others with 0s
-  fc_participants_observed %>%
+  fc_participants_observed |>
     left_join(fc_contacts_sry,
-              by = c("part_id", "wave", "studyDay")) %>%
+              by = c("part_id", "wave", "studyDay")) |>
     mutate(
       contacts = replace_na(contacts, 0)
-    ) %>%
+    ) |>
     # set factors
     mutate(
       part_id = factor(part_id),
@@ -61,7 +61,7 @@ process_fc_data_varpart <- function() {
       part_occupation = factor(part_occupation),
       wave = factor(wave),
       studyDay = factor(studyDay)
-    ) %>%
+    ) |>
     relocate(
       part_age,
       part_gender,
@@ -76,14 +76,14 @@ process_hk_data_varpart <- function() {
   
   filepath <- "data/hongkong/HongKongData.csv"
   
-  filepath %>%
-    read_csv() %>%
+  filepath |>
+    read_csv() |>
     select(
     part_id = pid,
     part_age = age,
     part_gender = sex,
     contacts = n.contact.total
-  ) %>% 
+  ) |> 
     mutate(
       part_id = as_factor(part_id),
       part_age = as_factor(part_age),
@@ -94,19 +94,19 @@ process_hk_data_varpart <- function() {
 
 # given a fitted random effects model, perform the variance partitioning
 partition_variance_lmer <- function (model) {
-  model %>%
-    summary() %>%
-    `[[`("varcor") %>%
-    as_tibble() %>%
+  model |>
+    summary() |>
+    `[[`("varcor") |>
+    as_tibble() |>
     mutate(
       var = sdcor ^ 2,
       proportion = var / sum(var)
-    ) %>%
+    ) |>
     select(
       grp,
       var,
       proportion
-    ) %>%
+    ) |>
     mutate(
       grp = case_when(
         grp == "part_age" ~ "between ages",
@@ -115,7 +115,7 @@ partition_variance_lmer <- function (model) {
         grp == "Residual" ~ "within individuals",
         .default = "between individuals (unexplained)",
       )
-    ) %>%
+    ) |>
     rename(
       partition = grp
     )
@@ -133,31 +133,31 @@ make_barplot <- function(partitioning) {
     "between occupations" =  scales::alpha("blue", 0.6)
   )
   
-  partitioning %>%
+  partitioning |>
     # set the factor order for partition to how we want to plot it
     mutate(
       partition = factor(partition,
                          levels = names(colour_palette))
-    ) %>%
+    ) |>
     # sort by partition (to the factor order), so we can place the labels in the
     # right places
     arrange(
       partition
-    ) %>%
+    ) |>
     group_by(
       Study
-    ) %>%
+    ) |>
     # for labels
     mutate(
       text_percent = scales::label_percent()(proportion),
       text_position = rev(cumsum(rev(proportion))) - proportion / 2
-    ) %>%
-    ungroup() %>%
+    ) |>
+    ungroup() |>
     # make some better names
     rename(
       `Variance explained` = proportion,
       Component = partition
-    ) %>%
+    ) |>
     ggplot(
       aes(
         x = Study,
@@ -191,16 +191,16 @@ process_fc_data_conmat <- function() {
   fc_participants_extra <- read_csv("data/french_connection/2015_Beraud_France_participant_extra.csv")
   
   # get all observed combinations of participant and wave, to pad contacts with 0s
-  fc_participants_observed <- fc_participants_extra %>%
+  fc_participants_observed <- fc_participants_extra |>
     select(part_id,
-           wave) %>%
+           wave) |>
     expand_grid(
       studyDay = 1:2
-    ) %>%
+    ) |>
     left_join(
       fc_participants,
       by = "part_id"
-    ) %>%
+    ) |>
     select(
       -hh_id,
       -part_gender
@@ -212,7 +212,7 @@ process_fc_data_conmat <- function() {
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay, per contact age
-  fc_contacts_sry <- fc_contacts %>%
+  fc_contacts_sry <- fc_contacts |>
     # deal with missing and interval contact ages but imputing from a uniform
     # distribution (in a vectorised way, for marginal computational efficiency
     # gain)
@@ -232,17 +232,17 @@ process_fc_data_conmat <- function() {
         .default = round(cont_age_imputed)
       ),
       .after = everything()
-    ) %>%
+    ) |>
     # add on wave and day columns
     left_join(fc_contacts_extra,
-              by = "cont_id") %>%
+              by = "cont_id") |>
     # count contacts per participant/wave/day
     group_by(
       part_id,
       wave,
       studyDay,
       cont_age
-    ) %>%
+    ) |>
     summarise(
       contacts = n(),
       .groups = "drop"
@@ -254,7 +254,7 @@ process_fc_data_conmat <- function() {
     to = max(fc_contacts_sry$cont_age),
     by = 1)
   
-  fc_contacts_complete <- fc_contacts_sry %>%  
+  fc_contacts_complete <- fc_contacts_sry |>  
     complete(
       # only the participant/wave/studyDay combinations in the data
       nesting(part_id, wave, studyDay),
@@ -265,18 +265,18 @@ process_fc_data_conmat <- function() {
     )
     
   # add observed contacts, fill in others with 0s
-  fc_participants_observed %>%
+  fc_participants_observed |>
     left_join(fc_contacts_complete,
-              by = c("part_id", "wave", "studyDay")) %>%
+              by = c("part_id", "wave", "studyDay")) |>
     mutate(
       contacts = replace_na(contacts, 0)
-    ) %>%
+    ) |>
     # set factors
     mutate(
       part_id = factor(part_id),
       wave = factor(wave),
       studyDay = factor(studyDay)
-    ) %>%
+    ) |>
     relocate(
       part_age,
       .before = cont_age
@@ -357,16 +357,16 @@ MapToEigen<-function(assort = 1,number_of_quantiles = 3,eigen_value=1,beta = 1){
 # sanity check contact variance analysis by permuting the participant IDs
 permute_sim <- function() {
   
-  fc_contact_counts %>%
+  fc_contact_counts |>
     mutate(
       contacts = sample(contacts)
-    ) %>%
+    ) |>
     lmer(
       log1p(contacts) ~ (1|part_age) + (1|part_id),
       data = .
-    ) %>%
-    partition_variance_lmer() %>%
-    select(-var) %>%
+    ) |>
+    partition_variance_lmer() |>
+    select(-var) |>
     pivot_wider(
       names_from = "partition",
       values_from = "proportion"

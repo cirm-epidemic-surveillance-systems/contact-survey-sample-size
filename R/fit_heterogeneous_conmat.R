@@ -7,9 +7,9 @@ source("R/functions.R")
 
 # Load FC data with the contact ages, and rename things to those expected by
 # conmat
-fc_contact_data <- process_fc_data_conmat() %>%
+fc_contact_data <- process_fc_data_conmat() |>
   rename(age_from = part_age,
-         age_to = cont_age) %>%
+         age_to = cont_age) |>
   mutate(
     setting = "all"
   )
@@ -17,11 +17,11 @@ fc_contact_data <- process_fc_data_conmat() %>%
 # aggregate observations across all participants (this won't work for our social
 # activity version, but doing this for now to check conmat analysis is working
 # on these data)
-fc_contact_data_summarised <- fc_contact_data %>%
+fc_contact_data_summarised <- fc_contact_data |>
   group_by(
     age_from,
     age_to,
-    setting) %>%
+    setting) |>
   summarise(
     contacts = sum(contacts),
     participants = n(),
@@ -53,14 +53,14 @@ age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
 autoplot(age_matrix)
 
 # modify the fitting function to add a random effect (create a conmat branch)
-fc_contact_data_participant <- fc_contact_data %>%
+fc_contact_data_participant <- fc_contact_data |>
   select(
     age_from,
     age_to,
     setting,
     contacts,
     part_id
-  ) %>%
+  ) |>
   mutate(
     participants = 1
   )
@@ -79,43 +79,43 @@ max_age <- max(fc_contact_data_participant$age_from,
 age_agg_lookup <- tibble(
   lower = age_breaks[-length(age_breaks)],
   upper = age_breaks[-1]
-  ) %>%
+  ) |>
   mutate(
     label = sprintf("[%s,%s)", lower, upper),
     upper = case_when(
       !is.finite(upper) ~ max_age + 1,
       .default = upper),
     midpoint = lower + 2
-  ) %>%
-  rowwise() %>%
+  ) |>
+  rowwise() |>
   mutate(
     age = list(seq(lower, upper - 1, by = 1))
-  ) %>%
-  unnest(age) %>%
+  ) |>
+  unnest(age) |>
   select(
     age,
     label,
     midpoint
   )
 
-# fc_contact_data_participant_lores <- fc_contact_data_participant %>%
+# fc_contact_data_participant_lores <- fc_contact_data_participant |>
 #   left_join(
 #     age_agg_lookup,
 #     by = "age_to"
-#   ) %>%
+#   ) |>
 #   group_by(
 #     part_id,
 #     age_from,
 #     setting,
 #     age_to_midpoint
-#   ) %>%
+#   ) |>
 #   summarise(
 #     contacts = sum(contacts),
 #     .groups = "drop"
-#   ) %>%
+#   ) |>
 #   mutate(
 #     participants = 1
-#   ) %>%
+#   ) |>
 #   rename(
 #     age_to = age_to_midpoint
 #   )
@@ -128,23 +128,23 @@ age_agg_lookup <- tibble(
 
 # join the age-structured matrix estimates onto this dataset
 
-fc_contact_data_participant %>%
+fc_contact_data_participant |>
   left_join(
     age_agg_lookup,
     by = c(age_from = "age")
-  ) %>%
+  ) |>
   rename(
     age_group_from = label,
     age_from_midpoint = midpoint
-  ) %>%
+  ) |>
   left_join(
     age_agg_lookup,
     by = c(age_to = "age")
-  ) %>%
+  ) |>
   rename(
     age_group_to = label,
     age_to_midpoint = midpoint
-  ) %>%
+  ) |>
   left_join(
     age_contact_pred,
     by = c(?)
@@ -169,11 +169,11 @@ fc_contact_data_participant %>%
 # # Produce the usual age-structured matrix
 # 
 # # need to hack this to handle part id!
-# age_matrix_participant <- fc_model_participant %>%
+# age_matrix_participant <- fc_model_participant |>
 #   predict_contacts(
 #     population = fc_population,
 #     age_breaks = age_breaks
-#   ) %>%
+#   ) |>
 #   predictions_to_matrix()
 # 
 # # output the discretised age matrix

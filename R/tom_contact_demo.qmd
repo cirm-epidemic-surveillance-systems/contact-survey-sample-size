@@ -38,22 +38,22 @@ observations <- expand_grid(
 Now create a separate data object for each of the cases above. For Case 1, individuals either have all 3s or all 6s:
 
 ```{r}
-case_1 <- observations %>%
+case_1 <- observations |>
   group_by(
     individual
-  ) %>%
+  ) |>
   mutate(
     contacts = sample(x = c(3, 6),
                       size = 1,
                       replace = TRUE)
-  ) %>%
+  ) |>
   ungroup()
 
 # print the first 3 observations per individual to check
-case_1 %>%
+case_1 |>
   filter(
     observation < 4
-  ) %>%
+  ) |>
   print(
     n = 15
   )
@@ -62,7 +62,7 @@ case_1 %>%
 For Case 2, all individuals are the same, and each observation is either 3 or 6:
 
 ```{r}
-case_2 <- observations %>%
+case_2 <- observations |>
   mutate(
     contacts = sample(x = c(3, 6),
                       size = n(),
@@ -70,10 +70,10 @@ case_2 <- observations %>%
   )
 
 # print the first 3 observations per individual to check
-case_2 %>%
+case_2 |>
   filter(
     observation < 4
-  ) %>%
+  ) |>
   print(
     n = 15
   )
@@ -97,7 +97,7 @@ For case 1, statistical estimation is hampered by the fact that the observation 
 With some jitter, the model can estimate the between-individual variance correctly, and the additional observation variance (which we later discard).
 
 ```{r}
-case_1_jitter <- case_1 %>%
+case_1_jitter <- case_1 |>
   mutate(
     contacts = contacts + rnorm(n(), 0, 0.05)
   )
@@ -119,7 +119,7 @@ We can check the model estimates of the individual-level means for the two diffe
 ```{r}
 estimated_social_activities <- tibble(
   individual = seq_len(n_individuals)
-) %>%
+) |>
   mutate(
     mean_case_1 = predict(case_1_model,
                           newdata = .),
@@ -140,35 +140,35 @@ First we do this using the estimated mean individual contact rates for the *obse
 ```{r}
 # define a small number, to make the code work with the boundary issues for case 2
 epsilon <- sqrt(.Machine$double.eps)
-classes_sample <- estimated_social_activities %>%
+classes_sample <- estimated_social_activities |>
   pivot_longer(
     cols = starts_with("mean_"),
     names_to = "case",
     values_to = "mean_contacts",
     names_prefix = "mean_"
-  ) %>%
+  ) |>
   mutate(
     # add jitter to the mean contacts, to deal with singular (variance = 0) fits
     # in case 2
     mean_contacts_jitter = mean_contacts + rnorm(n(), 0, epsilon),
-  ) %>%
+  ) |>
   group_by(
     case
-  ) %>%
+  ) |>
   mutate(
     class = case_when(
       mean_contacts_jitter > median(mean_contacts) ~ "high",
       mean_contacts_jitter <= median(mean_contacts) ~ "low"
     )
-  ) %>%
+  ) |>
   group_by(
     case,
     class
-  ) %>%
+  ) |>
   summarise(
     mean = mean(mean_contacts),
     .groups = "drop"
-  ) %>%
+  ) |>
   pivot_wider(
     values_from = mean,
     names_from = case
@@ -207,34 +207,34 @@ case_2_sd <- attr(summary(case_2_model)$varcor$individual, "stddev")
 classes_population <- tibble(
   case_1 = rnorm(1e5, case_1_mean, case_1_sd),
   case_2 = rnorm(1e5, case_2_mean, case_2_sd)
-) %>%
+) |>
   pivot_longer(
     cols = everything(),
     names_to = "case",
     values_to = "mean_contacts"
-  ) %>%
+  ) |>
   mutate(
     # add jitter to the mean contacts, to deal with singular (variance = 0) fits
     # in case 2
     mean_contacts_jitter = mean_contacts + rnorm(n(), 0, epsilon),
-  ) %>%
+  ) |>
   group_by(
     case
-  ) %>%
+  ) |>
   mutate(
     class = case_when(
       mean_contacts_jitter > median(mean_contacts) ~ "high",
       mean_contacts_jitter <= median(mean_contacts) ~ "low"
     )
-  ) %>%
+  ) |>
   group_by(
     case,
     class
-  ) %>%
+  ) |>
   summarise(
     mean = mean(mean_contacts),
     .groups = "drop"
-  ) %>%
+  ) |>
   pivot_wider(
     values_from = mean,
     names_from = case
