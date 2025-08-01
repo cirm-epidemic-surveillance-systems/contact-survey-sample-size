@@ -1,0 +1,23 @@
+---
+title: "Analysis 3 - Real-world application"
+format: html
+editor: visual
+---
+
+# Real-world analysis France and Hong Kong datasets
+
+Experiments on number of classes using model approach above
+
+\- Using conmat with an additional random effects term, estimate the activity-level distribution from HK & French data, produce augmented contact matrices, and compute R0s.
+
+see Nick's analysis in fit_heterogeneous_conmat and conmat branch: heterogeneous-augmentation for partly complete pipeline
+
+NEED: Finish applying the heterogeneous-augmentation conmat analysis, and make figures
+
+NEED: experiment with assumptions of assortativity by 'activity' status, based on estimates from other studies (using Leon's function `generate_matrix()` for setting the assortativity level
+
+Experiment with the consequences of modelling decisions on R0 estimates.
+
+-   Compute reductions in R0 for an augmented and a non-augmented model, for an intervention that reduces high-levels of mixing in non-work settings (e.g. closing nightclubs), by either reducing contacts in the younger age groups, or by reducing it among the high-activity individuals in those age groups. Make sure the total reduction in contacts is the same between the two scenarios. Show how you get different levels of effect from the two
+
+NEED: set up this analysis and produce figures

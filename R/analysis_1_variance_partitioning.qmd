@@ -1,0 +1,17 @@
+---
+title: "Analysis 1 - variance_partitioning"
+format: html
+editor: visual
+---
+
+## Variance partitioning analysis on contact rates
+
+How much variation in contact rates are we missing?
+
+\- Demonstrate from contact surveys with repeat measures that age & occupation do not capture much of the variation between individuals in average contact rates
+
+See variation_partitioning.R for mostly complete code
+
+Move code here
+
+NEED: Publication-quality single-panel figure of variance partitioning for different surveys

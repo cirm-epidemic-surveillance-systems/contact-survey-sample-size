@@ -1,0 +1,33 @@
+---
+title: "Analysis 2 - Simulation-estimation"
+format: html
+editor: visual
+---
+
+## Simulation-estimation studies to infer and account for activity levels
+
+What is the scale of the problem and to what extent can we overcome it using our proposed model?
+
+Demonstrate underestimation of R0 when activity level not accounted for
+
+\- Illustration that individual variation in contact rates increases the eigenvalue. This effect is stronger with higher assortativity, but still the case with less assortativity
+
+see Leon's analysis in ContactMatrixSplit.qmd for mostly complete code
+
+NEED: single-panel figure: number of activity classes on bottom, lines for each assortativity level.
+
+Demonstrate we can estimate activity levels
+
+\- Illustration with toy example (based on Tom's) that we can estimate the variance with a random effects model, and learn the parameters
+
+See Nick's analysis in tom_contact_demo.qmd for a full example on a simple simulation
+
+NEED: rework tom_contact_demo.qmd to have slightly more realistic data simulation from a known model, fit the model, and estimate the true parameters
+
+Demonstrate we can build augmented contact matrices and recover a less-biased R0
+
+\- Using the estimated parameters, build a kroneckered multi-activity level contact matrix and recover a less-biased R0. See how this depends on the number of classes
+
+NEED: rework tom_contact_demo.qmd to have multiple activity classes and demonstrate that it approaches true eigenvalues
+
+(is 'true' eigenvalue just the limiting case where all individuals have their own class in the matrix?)
