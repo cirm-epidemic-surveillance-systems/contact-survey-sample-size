@@ -1,0 +1,262 @@
+---
+title: "Random effects for Tom"
+format: pdf
+editor: visual
+---
+
+## Problem
+
+Here's Tom's concern:
+
+![](../misc/tom_concern.png)
+
+Below is an empirical demonstration that the random effects model we are using can partition the contact rate variance into between-individual and within-individual effects, and recover (approximately) the correct dominant eigenvalues under Tom's extreme scenario. Note that the true data-generating model (with zero variances) doesn't fit within the statistical model, and so the expected eigenvalues aren't reproduced exactly. But they are very close.
+
+## Data
+
+Load some packages and set the RNG seed
+
+```{r}
+#| message: false
+#| warning: false
+library(tidyverse)
+library(lme4)
+set.seed(2025-05-08)
+```
+
+Define a finite number of individuals and observations:
+
+```{r}
+n_individuals <- 1000
+n_observations <- 100
+observations <- expand_grid(
+  individual = seq_len(n_individuals),
+  observation = seq_len(n_observations)
+)
+```
+
+Now create a separate data object for each of the cases above. For Case 1, individuals either have all 3s or all 6s:
+
+```{r}
+case_1 <- observations %>%
+  group_by(
+    individual
+  ) %>%
+  mutate(
+    contacts = sample(x = c(3, 6),
+                      size = 1,
+                      replace = TRUE)
+  ) %>%
+  ungroup()
+
+# print the first 3 observations per individual to check
+case_1 %>%
+  filter(
+    observation < 4
+  ) %>%
+  print(
+    n = 15
+  )
+```
+
+For Case 2, all individuals are the same, and each observation is either 3 or 6:
+
+```{r}
+case_2 <- observations %>%
+  mutate(
+    contacts = sample(x = c(3, 6),
+                      size = n(),
+                      replace = TRUE)
+  )
+
+# print the first 3 observations per individual to check
+case_2 %>%
+  filter(
+    observation < 4
+  ) %>%
+  print(
+    n = 15
+  )
+```
+
+The vectors of contacts for the two cases have the same distribution (mean = 4.5, sd = 1.5)
+
+```{r}
+mean(case_1$contacts)
+sd(case_1$contacts)
+mean(case_2$contacts)
+sd(case_2$contacts)
+```
+
+## Models
+
+Now we estimate the between-individual variance for these two cases using a random effects model.
+
+For case 1, statistical estimation is hampered by the fact that the observation variance in the data is 0. This leads to errors in the fitting algorithm and an incorrect estimate. For this reason, we need to add some additional variance to each observation to get the model to fit. This won't be an issue with real data.
+
+With some jitter, the model can estimate the between-individual variance correctly, and the additional observation variance (which we later discard).
+
+```{r}
+case_1_jitter <- case_1 %>%
+  mutate(
+    contacts = contacts + rnorm(n(), 0, 0.05)
+  )
+case_1_model <- lmer(contacts ~ (1|individual),
+                     data = case_1_jitter)
+summary(case_1_model)$varcor
+```
+
+For case 2 (which has plenty of observation variance), the same model fits well on the degenerate data and correctly estimates that the variation (sd \~\~ 1.5) is mostly within individuals. The between-individual sd is constrained in the statistical model to be greater than 0, but occasionally singular fits occur and we get a warning and an estimate of 0 (the truth, for case 2).
+
+```{r}
+case_2_model <- lmer(contacts ~ (1|individual),
+                     data = case_2)
+summary(case_2_model)$varcor
+```
+
+We can check the model estimates of the individual-level means for the two different scenarios/datasets. It correctly identifies that in the Case 1 data, individuals are (approximately) from two different classes (mean 3 and mean 6), but in Case 2 they are (approximately) all from the same class with mean 4.5.
+
+```{r}
+estimated_social_activities <- tibble(
+  individual = seq_len(n_individuals)
+) %>%
+  mutate(
+    mean_case_1 = predict(case_1_model,
+                          newdata = .),
+    mean_case_2 = predict(case_2_model,
+                          newdata = .)
+  )
+estimated_social_activities
+```
+
+## Eigenvalues
+
+Now we construct two-stage (high and low social activity) contact matrices from these and compute the dominant eigenvalues.
+
+### From the observed sample of individuals
+
+First we do this using the estimated mean individual contact rates for the *observed sample* of individuals. This is slightly different than the proposed analysis for real data, which will simulate individuals from the modelled population distribution (a normal distribution, which is a poor match to these data but which we also do below for comparison). This version should give the answer most relevant to Tom's question.
+
+```{r}
+# define a small number, to make the code work with the boundary issues for case 2
+epsilon <- sqrt(.Machine$double.eps)
+classes_sample <- estimated_social_activities %>%
+  pivot_longer(
+    cols = starts_with("mean_"),
+    names_to = "case",
+    values_to = "mean_contacts",
+    names_prefix = "mean_"
+  ) %>%
+  mutate(
+    # add jitter to the mean contacts, to deal with singular (variance = 0) fits
+    # in case 2
+    mean_contacts_jitter = mean_contacts + rnorm(n(), 0, epsilon),
+  ) %>%
+  group_by(
+    case
+  ) %>%
+  mutate(
+    class = case_when(
+      mean_contacts_jitter > median(mean_contacts) ~ "high",
+      mean_contacts_jitter <= median(mean_contacts) ~ "low"
+    )
+  ) %>%
+  group_by(
+    case,
+    class
+  ) %>%
+  summarise(
+    mean = mean(mean_contacts),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    values_from = mean,
+    names_from = case
+  )
+classes_sample
+```
+
+Now we can create contact matrices and compute dominant eigenvalues, which match the expected values.
+
+Here are the functions:
+
+```{r}
+make_contact_matrix <- function(class_means) {
+  class_means %*% t(class_means) / sum(class_means)
+}
+get_eigenval <- function(matrix) {
+  Re(eigen(matrix)$values[1])
+}
+```
+
+For case 1, the eigenvalue is (approximately) 5, as expected.
+
+```{r}
+case_1_sample_contact <- make_contact_matrix(classes_sample$case_1)
+case_1_sample_contact
+get_eigenval(case_1_sample_contact)
+```
+
+For case 2, the eigenvalue is (approximately) the average number of contacts: 4.5, as expected.
+
+```{r}
+case_2_sample_contact <- make_contact_matrix(classes_sample$case_2)
+case_2_sample_contact
+get_eigenval(case_2_sample_contact)
+```
+
+### From the modelled population
+
+For comparison, we also run the analysis as envisaged for real data. This uses the normal model for population variability (which will be more powerful where we have fewer respondents and repeat observations). In this degenerate data case, the model's normality assumption is violated (in case 1), so the estimates of contact rates for the two classes, and the dominant eigenvalue, are biased down but still clearly greater than for case 2.
+
+```{r}
+case_1_mean <- fixef(case_1_model)
+case_1_sd <- attr(summary(case_1_model)$varcor$individual, "stddev")
+case_2_mean <- fixef(case_2_model)
+case_2_sd <- attr(summary(case_2_model)$varcor$individual, "stddev")
+
+classes_population <- tibble(
+  case_1 = rnorm(1e5, case_1_mean, case_1_sd),
+  case_2 = rnorm(1e5, case_2_mean, case_2_sd)
+) %>%
+  pivot_longer(
+    cols = everything(),
+    names_to = "case",
+    values_to = "mean_contacts"
+  ) %>%
+  mutate(
+    # add jitter to the mean contacts, to deal with singular (variance = 0) fits
+    # in case 2
+    mean_contacts_jitter = mean_contacts + rnorm(n(), 0, epsilon),
+  ) %>%
+  group_by(
+    case
+  ) %>%
+  mutate(
+    class = case_when(
+      mean_contacts_jitter > median(mean_contacts) ~ "high",
+      mean_contacts_jitter <= median(mean_contacts) ~ "low"
+    )
+  ) %>%
+  group_by(
+    case,
+    class
+  ) %>%
+  summarise(
+    mean = mean(mean_contacts),
+    .groups = "drop"
+  ) %>%
+  pivot_wider(
+    values_from = mean,
+    names_from = case
+  )
+classes_population
+case_1_population_contact <- make_contact_matrix(classes_population$case_1)
+case_1_population_contact
+get_eigenval(case_1_population_contact)
+case_2_population_contact <- make_contact_matrix(classes_population$case_2)
+case_2_population_contact
+get_eigenval(case_2_population_contact)
+```
+
+In an analysis on a real dataset (with less data and without this two-pointmass data structure), this second version is likely to provide less biased estimates than the first.
