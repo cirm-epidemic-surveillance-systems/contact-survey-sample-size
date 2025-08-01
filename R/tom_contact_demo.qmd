@@ -19,8 +19,8 @@ Load packages, functions, and set the RNG seed
 ```{r}
 #| message: false
 #| warning: false
-source("packages.R")
-source("functions.R")
+source("R/packages.R")
+source("R/functions.R")
 set.seed(2025-05-08)
 ```
 

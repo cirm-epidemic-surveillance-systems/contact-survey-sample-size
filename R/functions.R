@@ -421,24 +421,6 @@ map_to_eigen <- function(assort = 1,
   matrix_to_eigenvalue(M, eigen_value = eigen_value)
 }
 
-# sanity check contact variance analysis by permuting the participant IDs
-permute_sim <- function() {
-  fc_contact_counts |>
-    mutate(
-      contacts = sample(contacts)
-    ) |>
-    lmer(
-      log1p(contacts) ~ (1|part_age) + (1|part_id),
-      data = .
-    ) |>
-    partition_variance_lmer() |>
-    select(-var) |>
-    pivot_wider(
-      names_from = "partition",
-      values_from = "proportion"
-    )
-}
-
 # make a proportionate mixing contact matrix from class contact rates
 make_contact_matrix <- function(class_means) {
   class_means %*% t(class_means) / sum(class_means)

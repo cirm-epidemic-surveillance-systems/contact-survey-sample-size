@@ -5,8 +5,8 @@ format: html
 
 ```{r}
 # load packages and functions
-source("packages.R")
-source("functions.R")
+source("R/packages.R")
+source("R/functions.R")
 ```
 
 ```{r}
