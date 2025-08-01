@@ -3,10 +3,13 @@
 process_fc_data_varpart <- function() {
   
   # participant info
-  fc_participants <- read_csv("data/french_connection/2015_Beraud_France_participant_common.csv")
-  fc_participants_extra <- read_csv("data/french_connection/2015_Beraud_France_participant_extra.csv")
+  fc_participants <- read_csv(
+    "data/french_connection/2015_Beraud_France_participant_common.csv")
+  fc_participants_extra <- read_csv(
+    "data/french_connection/2015_Beraud_France_participant_extra.csv")
   
-  # get all observed combinations of participant and wave, to pad contacts with 0s
+  # get all observed combinations of participant and wave, to pad contacts with
+  # 0s
   fc_participants_observed <- fc_participants_extra |>
     select(part_id,
            wave,
@@ -26,8 +29,10 @@ process_fc_data_varpart <- function() {
     )
   
   # contact events
-  fc_contacts <- read_csv("data/french_connection/2015_Beraud_France_contact_common.csv")
-  fc_contacts_extra <- read_csv("data/french_connection/2015_Beraud_France_contact_extra.csv")
+  fc_contacts <- read_csv(
+    "data/french_connection/2015_Beraud_France_contact_common.csv")
+  fc_contacts_extra <- read_csv(
+    "data/french_connection/2015_Beraud_France_contact_extra.csv")
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay
@@ -92,11 +97,19 @@ process_hk_data_varpart <- function() {
   
 }
 
+# a hack because this errors with the native pipe:
+#  x |> `[[`(y)
+# so we can do:
+#  x |> extracting(y)
+extracting <- function(x, y) {
+  x[[y]]
+}
+
 # given a fitted random effects model, perform the variance partitioning
 partition_variance_lmer <- function (model) {
   model |>
     summary() |>
-    `[[`("varcor") |>
+    extracting("varcor") |>
     as_tibble() |>
     mutate(
       var = sdcor ^ 2,
@@ -187,10 +200,13 @@ make_barplot <- function(partitioning) {
 process_fc_data_conmat <- function() {
   
   # participant info
-  fc_participants <- read_csv("data/french_connection/2015_Beraud_France_participant_common.csv")
-  fc_participants_extra <- read_csv("data/french_connection/2015_Beraud_France_participant_extra.csv")
+  fc_participants <- read_csv(
+    "data/french_connection/2015_Beraud_France_participant_common.csv")
+  fc_participants_extra <- read_csv(
+    "data/french_connection/2015_Beraud_France_participant_extra.csv")
   
-  # get all observed combinations of participant and wave, to pad contacts with 0s
+  # get all observed combinations of participant and wave, to pad contacts with
+  # 0s
   fc_participants_observed <- fc_participants_extra |>
     select(part_id,
            wave) |>
@@ -207,8 +223,10 @@ process_fc_data_conmat <- function() {
     )
   
   # contact events
-  fc_contacts <- read_csv("data/french_connection/2015_Beraud_France_contact_common.csv")
-  fc_contacts_extra <- read_csv("data/french_connection/2015_Beraud_France_contact_extra.csv")
+  fc_contacts <- read_csv(
+    "data/french_connection/2015_Beraud_France_contact_common.csv")
+  fc_contacts_extra <- read_csv(
+    "data/french_connection/2015_Beraud_France_contact_extra.csv")
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay, per contact age
@@ -283,80 +301,128 @@ process_fc_data_conmat <- function() {
     )
 }
 
-#supporting function for quantizing
-MeasureMeanByContactQuantile<-function(contacts,N_quantiles){
+# supporting function for quantizing
+measure_mean_by_contact_quantile <- function(contacts, n_quantiles) {
   contacts |> 
-    mutate(MeansByQuantile = ntile(X,N_quantiles)) |> 
-    group_by(MeansByQuantile) |> 
-    summarise(MeansByQuantile = mean(X)) |> 
-    mutate(Quantile = row_number())->tmp
-  return(tmp)
+    mutate(
+      means_by_quantile = ntile(X, n_quantiles)
+    ) |> 
+    group_by(
+      means_by_quantile
+    ) |> 
+    summarise(
+      means_by_quantile = mean(X)
+    ) |> 
+    mutate(
+      quantile = row_number()
+    )
 }
 
-GenerateProportionateMixingMatrix <-function(s){
-  SumDegree = sum(s$MeansByQuantile)
-  cross_join(s,s)|> 
-    mutate(Product = MeansByQuantile.x*MeansByQuantile.y)|> 
-    select(From = Quantile.x, To = Quantile.y,Product)|> 
-    mutate(Product = Product/SumDegree)|> 
-    rename(Weight = Product)->tmp
-  
-  return(tmp)
+generate_proportionate_mixing_matrix <- function(s) {
+  sum_degree <- sum(s$means_by_quantile)
+  cross_join(s, s) |> 
+    mutate(
+      product = means_by_quantile.x * means_by_quantile.y
+    ) |> 
+    select(
+      from = quantile.x,
+      to = quantile.y, product
+    ) |> 
+    mutate(
+      product = product / sum_degree
+    ) |> 
+    rename(
+      weight = product
+    )
 }
 
-GenerateFullyAssortativeMixingMatrix <-function(s){
-  
-  cross_join(s,s)|>
-    rename(From = Quantile.x, To = Quantile.y)|> 
-    mutate(Weight = ifelse(From == To, MeansByQuantile.x,0 )) |> 
-    select(From,To,Weight)->tmp
-  return(tmp)    
+generate_fully_assortative_mixing_matrix <- function(s) {
+  cross_join(s, s) |>
+    rename(
+      from = quantile.x,
+      to = quantile.y
+    ) |> 
+    mutate(
+      weight = ifelse(from == to,
+                      means_by_quantile.x,
+                      0)
+    ) |> 
+    select(
+      from,
+      to,
+      weight
+    )
 }
 
-#wrapper function
-
-GenerateMatrix<-function(sigma = 1,number_of_quantiles = 2, assort=1){
-  #sigma is the normal distribution standard deviation
-  #alpha is the amount of assortativity
-  as_tibble(x=exp(rnorm(n=1000000))) |> 
-    rename(X=value)-> normal_dist_test.df
+# wrapper function
+# sigma is the normal distribution standard deviation
+# alpha is the amount of assortativity
+generate_matrix <- function(sigma = 1, number_of_quantiles = 2, assort = 1) {
   
-  MeasureMeanByContactQuantile(normal_dist_test.df,number_of_quantiles)->s
+  normal_dist_test.df <- as_tibble(
+    x = exp(rnorm(n = 1000000))
+  ) |> 
+    rename(
+      X = value
+    )
   
-  AssortativeMatrix<-GenerateFullyAssortativeMixingMatrix(s)
-  ProportionateMatrix<-GenerateProportionateMixingMatrix(s)
+  s <- measure_mean_by_contact_quantile(normal_dist_test.df,
+                                        number_of_quantiles)
   
-  AssortativeMatrix
-  ProportionateMatrix
+  assortative_matrix <- generate_fully_assortative_mixing_matrix(s)
+  proportionate_matrix <- generate_proportionate_mixing_matrix(s)
   
-  AssortativeMatrix |> 
-    rename(Weight_Assortative=Weight) |> 
-    mutate(Weight_Proportionate = ProportionateMatrix$Weight) |> 
-    mutate(WeightCombined = assort*Weight_Assortative + (1-assort)*Weight_Proportionate) |> 
-    select(From,To,WeightCombined) -> CombinedMatrix
+  assortative_matrix |> 
+    rename(
+      weight_assortative = weight
+    ) |> 
+    mutate(
+      weight_proportionate = proportionate_matrix$weight
+    ) |> 
+    mutate(
+      weight_combined = assort * weight_assortative +
+        (1 - assort) * weight_proportionate
+    ) |> 
+    select(
+      from,
+      to,
+      weight_combined
+    )
   
-  return(CombinedMatrix)
 }
 
-MatrixToEigenvalue<-function(M,eigen_value = 1){
-  #M is the matrix in long format, eigen_value is which eigenvalue to extract 
-  #defaults to eigen_value = 1 for the dominant 
-  M |> usedist::pivot_to_numeric_matrix(From, To, WeightCombined) |> 
-    eigen()->decomp 
-  tmp = decomp$values[eigen_value]
-  return(tmp)  
+# M is the matrix in long format, eigen_value is which eigenvalue to extract 
+# defaults to eigen_value = 1 for the dominant 
+matrix_to_eigenvalue <- function(M, eigen_value = 1) {
+  decomp <- M |>
+    usedist::pivot_to_numeric_matrix(
+      from,
+      to,
+      weight_combined
+    ) |> 
+    eigen() 
+  decomp$values[eigen_value]
 }
 
-MapToEigen<-function(assort = 1,number_of_quantiles = 3,eigen_value=1,beta = 1){
-  GenerateMatrix(assort = assort,number_of_quantiles = number_of_quantiles)->M 
-  M |> mutate(WeightCombined = WeightCombined*beta)
-  MatrixToEigenvalue(M,eigen_value=eigen_value)->tmp
-  return(tmp)
+map_to_eigen <- function(assort = 1,
+                         number_of_quantiles = 3,
+                         eigen_value = 1,
+                         beta = 1) {
+  M <- generate_matrix(assort = assort,
+                       number_of_quantiles = number_of_quantiles)
+  M |>
+    mutate(
+      weight_combined = weight_combined * beta
+    )
+  
+  # NOTE: the line above has no effect - presumably unintended, but currently
+  # not used
+  
+  matrix_to_eigenvalue(M, eigen_value = eigen_value)
 }
 
 # sanity check contact variance analysis by permuting the participant IDs
 permute_sim <- function() {
-  
   fc_contact_counts |>
     mutate(
       contacts = sample(contacts)
@@ -371,7 +437,6 @@ permute_sim <- function() {
       names_from = "partition",
       values_from = "proportion"
     )
-  
 }
 
 # make a proportionate mixing contact matrix from class contact rates

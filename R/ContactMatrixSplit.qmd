@@ -11,24 +11,24 @@ source("functions.R")
 
 ```{r}
 
-GenerateMatrix(assort = 1,number_of_quantiles = 3)->M
+generate_matrix(assort = 1,number_of_quantiles = 3)->M
 # works
 ```
 
 ##Calculate the eigenvalues
 
 ```{r}
-MatrixToEigenvalue(M,eigen_value=1)
+matrix_to_eigenvalue(M,eigen_value=1)
 ```
 
 
 ```{r}
 plan(multisession, workers = 12)
 
-MapToEigen(assort = 1, number_of_quantiles = 3)
+map_to_eigen(assort = 1, number_of_quantiles = 3)
 
 expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,10,1))|> 
-  mutate(tmp = map2(Assort,Bins, ~MapToEigen(assort = .x, number_of_quantiles = .y))) |> 
+  mutate(tmp = map2(Assort,Bins, ~map_to_eigen(assort = .x, number_of_quantiles = .y))) |> 
   unnest(tmp)->Output
 
 Output |> 
@@ -47,7 +47,7 @@ Output |>
 Scale of the issues
 ```{r}
 expand_grid(Assort = seq(0,1,0.1),Bins = seq(1,100,1))|> 
-  mutate(tmp = future_map2(Assort,Bins, ~MapToEigen(assort = .x, number_of_quantiles = .y))) |> 
+  mutate(tmp = future_map2(Assort,Bins, ~map_to_eigen(assort = .x, number_of_quantiles = .y))) |> 
   unnest(tmp)->Output
 
 Output |> 
