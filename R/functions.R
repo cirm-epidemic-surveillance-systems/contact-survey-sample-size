@@ -1,12 +1,123 @@
+# Download all French Connection study data:
+
+# Béraud G, Kazmercziak S, Beutels P, Levy-Bruhl D, Lenne X, Mielcarek N, et al.
+# (2015) The French Connection: The First Large Population-Based Contact Survey
+# in France Relevant for the Spread of Infectious Diseases. PLoS ONE 10(7):
+# e0133203. https://doi.org/10.1371/journal.pone.0133203
+
+# data on zenodo here: https://zenodo.org/records/3886590
+
+fc_data_dir <- function() {
+  "data/french_connection"
+}
+
+fc_data_filepath <- function(who = c("participant", "contact"),
+                             details = c("common", "extra")) {
+  who <- match.arg(who)
+  details <- match.arg(details)
+  
+  filename <- paste0(
+    "2015_Beraud_France_",
+    who,
+    "_",
+    details,
+    ".csv"
+  )
+  file.path(
+    fc_data_dir(),
+    filename
+  )
+}
+
+fc_data_filepaths <- function() {
+  c(
+    fc_data_filepath("participant", "common"),
+    fc_data_filepath("participant", "extra"),
+    fc_data_filepath("contact", "common"),
+    fc_data_filepath("contact", "extra")
+  )
+}
+
+# create a directory, download the file, and unzip it
+download_fc_data <- function() {
+  dir.create(fc_data_dir(),
+             recursive = TRUE,
+             showWarnings = FALSE)
+  fc_filepath <- file.path(fc_data_dir(),
+                           "everything.zip")
+  download.file("https://zenodo.org/api/records/3886590/files-archive",
+                fc_filepath)
+  unzip(fc_filepath,
+        exdir = fc_data_dir())
+}
+
+# check whether the French Connection data has been downloaded, and if not,
+# download it
+maybe_download_fc_data <- function() {
+  files_exist <- vapply(fc_data_filepaths(),
+                        file.exists,
+                        FUN.VALUE = TRUE)
+  if (!all(files_exist)) {
+    message("Downloading French Connection data")
+    download_fc_data()
+  }
+}
+
+# Download all Hong Kong Survey data
+
+# Kwok Kin On, Cowling Ben, Wei Vivian, Riley Steven and Read Jonathan M.
+# 2018 Temporal variation of human encounters and the number of locations in
+# which they occur: a longitudinal study of Hong Kong residentsJ. R. Soc.
+# Interface. 15:20170838 https://doi.org/10.1098/rsif.2017.0838
+
+# direct csv download here:
+# https://royalsocietypublishing.org/action/downloadSupplement?doi=10.1098%2Frsif.2017.0838&file=rsif20170838supp2.csv
+
+hk_data_dir <- function() {
+  "data/hongkong"
+}
+
+hk_data_filepath <- function() {
+  file.path(
+    hk_data_dir(),
+    "HongKongData.csv"
+  )
+}
+
+# create a directory and download the CSV there
+download_hk_data <- function() {
+  dir.create(hk_data_dir(),
+             recursive = TRUE,
+             showWarnings = FALSE)
+  download.file("https://royalsocietypublishing.org/action/downloadSupplement?doi=10.1098%2Frsif.2017.0838&file=rsif20170838supp2.csv",
+                hk_data_filepath())
+}
+
+# check whether the Hong Kong data has been downloaded, and if not, download it
+maybe_download_hk_data <- function() {
+  files_exist <- vapply(hk_data_filepaths(),
+                        file.exists,
+                        FUN.VALUE = TRUE)
+  if (!all(files_exist)) {
+    message("Downloading Hong Kong data")
+    download_hk_data()
+  }
+}
+
 # load and process the French Connection data for the variance partitioning
 # analysis
 process_fc_data_varpart <- function() {
   
+  # download the French Connection data, if needed
+  maybe_download_fc_data()
+  
   # participant info
   fc_participants <- read_csv(
-    "data/french_connection/2015_Beraud_France_participant_common.csv")
+    fc_data_filepath("participant",
+                     "common"))
   fc_participants_extra <- read_csv(
-    "data/french_connection/2015_Beraud_France_participant_extra.csv")
+    fc_data_filepath("participant",
+                     "extra"))
   
   # get all observed combinations of participant and wave, to pad contacts with
   # 0s
@@ -30,9 +141,11 @@ process_fc_data_varpart <- function() {
   
   # contact events
   fc_contacts <- read_csv(
-    "data/french_connection/2015_Beraud_France_contact_common.csv")
+    fc_data_filepath("contact",
+                     "common"))
   fc_contacts_extra <- read_csv(
-    "data/french_connection/2015_Beraud_France_contact_extra.csv")
+    fc_data_filepath("contact",
+                     "extra"))
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay
@@ -79,9 +192,10 @@ process_fc_data_varpart <- function() {
 # partitioning analysis
 process_hk_data_varpart <- function() {
   
-  filepath <- "data/hongkong/HongKongData.csv"
+  # download the Hong Kong data if needed
+  maybe_download_hk_data()
   
-  filepath |>
+  hk_data_filepath() |>
     read_csv() |>
     select(
     part_id = pid,
@@ -194,16 +308,20 @@ make_barplot <- function(partitioning) {
     theme_minimal()
 }
 
-
 # load and process the French Connection data for learning the age-structured
 # contct matrix, augmented with additional heterogeneity classes
 process_fc_data_conmat <- function() {
   
+  # download the French Connection data, if needed
+  maybe_download_fc_data()
+  
   # participant info
   fc_participants <- read_csv(
-    "data/french_connection/2015_Beraud_France_participant_common.csv")
+    fc_data_filepath("participant",
+                     "common"))
   fc_participants_extra <- read_csv(
-    "data/french_connection/2015_Beraud_France_participant_extra.csv")
+    fc_data_filepath("participant",
+                     "extra"))
   
   # get all observed combinations of participant and wave, to pad contacts with
   # 0s
@@ -224,9 +342,11 @@ process_fc_data_conmat <- function() {
   
   # contact events
   fc_contacts <- read_csv(
-    "data/french_connection/2015_Beraud_France_contact_common.csv")
+    fc_data_filepath("contact",
+                     "common"))
   fc_contacts_extra <- read_csv(
-    "data/french_connection/2015_Beraud_France_contact_extra.csv")
+    fc_data_filepath("contact",
+                     "extra"))  
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay, per contact age
