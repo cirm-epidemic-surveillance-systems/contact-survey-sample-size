@@ -4,7 +4,7 @@ format: html
 editor: visual
 ---
 
-## Simulation-estimation studies to infer and account for activity levels
+# Simulation-estimation studies to infer and account for activity levels
 
 What is the scale of the problem and to what extent can we overcome it using our proposed model?
 
@@ -41,30 +41,32 @@ source("R/packages.R")
 source("R/functions.R")
 ```
 
+## Demonstrate scale of problem
+
+Demonstrate underestimation of R0 when activity level not accounted for
+
+Illustration that individual variation in contact rates increases the eigenvalue. This effect is stronger with higher assortativity, but still the case with less assortativity.
+
+Run computations in parallel
 ```{r}
-M <- generate_matrix(assort = 1, number_of_quantiles = 3)
+plan(multisession, workers = 8)
 ```
 
-## Calculate the eigenvalues
+### Old plot
+
+Apply for a range of assortativities and numbers of activity level bins
 
 ```{r}
-matrix_to_eigenvalue(M, eigen_value = 1)
-```
-
-```{r}
-plan(multisession, workers = 12)
-
-map_to_eigen(assort = 1, number_of_quantiles = 3)
-
 output <- expand_grid(
   assort = seq(0, 1, 0.1),
   bins = seq(1, 10, 1)
 )|> 
   mutate(
-    tmp = map2(assort,
-               bins,
-               ~ map_to_eigen(assort = .x,
-                             number_of_quantiles = .y))
+    tmp = furrr::future_map2(assort,
+                             bins,
+                             ~ map_to_eigen(assort = .x,
+                                            number_of_quantiles = .y),
+                             .options = furrr_options(seed = TRUE))
   ) |> 
   unnest(
     tmp
@@ -88,49 +90,64 @@ output |>
   geom_line() +
   geom_point() +
   xlab("Assortativity")
-  
 ```
 
-## Better figure
+### New plot
 
-Scale of the issues
+In the above plot, assortativity is on the x axis and therefore appears as the primary point of the plot, whereas the manuscript is more about activity levels. The colour is plotted as the number of bins, which is a metric of quality of the approximation than a measure of variation in activity levels. Therefore, try a new plot that plots eigencvalues against the activity level standard deviation sigma (x axis) with assortativity in colour.
 
 ```{r}
 output <- expand_grid(
-  assort = seq(0, 1, 0.1),
-  bins = seq(1, 100, 1)
-) |> 
+  sigma = seq(0, 1, 0.05),
+  assort = seq(0, 1, 0.2)
+)|> 
   mutate(
-    tmp = future_map2(
-      assort,
-      bins,
-      ~map_to_eigen(
-        assort = .x,
-        number_of_quantiles = .y))
+    eigenvalue = furrr::future_map2(sigma,
+                                    assort,
+                                    ~ map_to_eigen(sigma = .x,
+                                                   assort = .y,
+                                                   number_of_quantiles = 300),
+                             .options = furrr_options(seed = TRUE))
   ) |> 
   unnest(
-    tmp
+    eigenvalue
   )
+```
 
-output |> 
+Plot the results
+
+```{r}
+activity_assort_plot <- output |> 
   select(
-    assort,
-    bins,
-    eigenvalue = tmp
-  ) |> 
-  mutate(
-    bins = as_factor(bins)
+    Assortativity = assort,
+    sigma,
+    eigenvalue
   ) |> 
   ggplot(
     aes(
-      x = assort,
+      x = sigma,
       y = eigenvalue,
-      colour = bins
-    )
+      group = Assortativity,
+      colour = Assortativity)
   ) +
   geom_line() +
-  geom_point() +
-  xlab("Assortativity") +
-  theme_minimal_grid()
+  scale_color_gradient(
+    low = grey(0.8),
+    high = "blue"
+  ) +
+  xlab("Variation in activity levels") +
+  ylab("Eigenvalue") +
+  theme_minimal()
+activity_assort_plot
+```
 
+Save this plot for the manuscript
+
+```{r}
+ggsave("figures/activity_assort_plot.png",
+       plot = activity_assort_plot,
+       bg = "white",
+       scale = 1,
+       width = 6,
+       height = 4)
 ```

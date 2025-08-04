@@ -480,7 +480,9 @@ generate_fully_assortative_mixing_matrix <- function(s) {
 generate_matrix <- function(sigma = 1, number_of_quantiles = 2, assort = 1) {
   
   normal_dist_test.df <- as_tibble(
-    x = exp(rnorm(n = 1000000))
+    x = exp(rnorm(n = 1000000,
+                  mean = 0,
+                  sd = sigma))
   ) |> 
     rename(
       X = value
@@ -524,11 +526,13 @@ matrix_to_eigenvalue <- function(M, eigen_value = 1) {
   decomp$values[eigen_value]
 }
 
-map_to_eigen <- function(assort = 1,
+map_to_eigen <- function(sigma = 1,
+                         assort = 1,
                          number_of_quantiles = 3,
                          eigen_value = 1,
                          beta = 1) {
-  M <- generate_matrix(assort = assort,
+  M <- generate_matrix(sigma = sigma,
+                       assort = assort,
                        number_of_quantiles = number_of_quantiles)
   M |>
     mutate(
