@@ -31,3 +31,106 @@ Demonstrate we can build augmented contact matrices and recover a less-biased R0
 NEED: rework tom_contact_demo.qmd to have multiple activity classes and demonstrate that it approaches true eigenvalues
 
 (is 'true' eigenvalue just the limiting case where all individuals have their own class in the matrix?)
+
+Load packages and functions
+
+```{r}
+#| message: false
+#| warning: false
+source("R/packages.R")
+source("R/functions.R")
+```
+
+```{r}
+M <- generate_matrix(assort = 1, number_of_quantiles = 3)
+```
+
+## Calculate the eigenvalues
+
+```{r}
+matrix_to_eigenvalue(M, eigen_value = 1)
+```
+
+```{r}
+plan(multisession, workers = 12)
+
+map_to_eigen(assort = 1, number_of_quantiles = 3)
+
+output <- expand_grid(
+  assort = seq(0, 1, 0.1),
+  bins = seq(1, 10, 1)
+)|> 
+  mutate(
+    tmp = map2(assort,
+               bins,
+               ~ map_to_eigen(assort = .x,
+                             number_of_quantiles = .y))
+  ) |> 
+  unnest(
+    tmp
+  )
+
+output |> 
+  select(
+    assort,
+    bins,
+    eigenvalue = tmp
+  ) |> 
+  mutate(
+    bins = as_factor(bins)
+  )|> 
+  ggplot(
+    aes(
+      x = assort,
+      y = eigenvalue,
+      colour = bins)
+  ) +
+  geom_line() +
+  geom_point() +
+  xlab("Assortativity")
+  
+```
+
+## Better figure
+
+Scale of the issues
+
+```{r}
+output <- expand_grid(
+  assort = seq(0, 1, 0.1),
+  bins = seq(1, 100, 1)
+) |> 
+  mutate(
+    tmp = future_map2(
+      assort,
+      bins,
+      ~map_to_eigen(
+        assort = .x,
+        number_of_quantiles = .y))
+  ) |> 
+  unnest(
+    tmp
+  )
+
+output |> 
+  select(
+    assort,
+    bins,
+    eigenvalue = tmp
+  ) |> 
+  mutate(
+    bins = as_factor(bins)
+  ) |> 
+  ggplot(
+    aes(
+      x = assort,
+      y = eigenvalue,
+      colour = bins
+    )
+  ) +
+  geom_line() +
+  geom_point() +
+  xlab("Assortativity") +
+  theme_minimal_grid()
+
+```
