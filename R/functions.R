@@ -438,33 +438,50 @@ measure_mean_by_contact_quantile <- function(contacts, n_quantiles) {
     )
 }
 
-generate_proportionate_mixing_matrix <- function(s) {
-  sum_degree <- sum(s$means_by_quantile)
-  cross_join(s, s) |> 
+generate_proportionate_mixing_matrix <- function(activity_classes) {
+  # # fraction of contactees in each class, if even population fractions
+  # sum_degree_old <- sum(activity_classes$activity)
+  n_classes <- nrow(activity_classes)
+
+  # all contact events, accounting for uneven population fractions
+  sum_degree <- sum(activity_classes$activity *
+                      activity_classes$fraction *
+                      n_classes)
+  cross_join(
+    activity_classes,
+    activity_classes
+  ) |> 
     mutate(
-      product = means_by_quantile.x * means_by_quantile.y
+      # weight_old = activity.x * activity.y / sum_degree_old,
+      # for each contact, the probability the contactee is in the y compartment
+      prob_contactee = n_classes * fraction.y * activity.y,
+      # # probability the contactor is in the x compartment
+      prob_contactor = n_classes * fraction.x * activity.x,
+      weight = prob_contactor * prob_contactee / sum_degree,
     ) |> 
     select(
-      from = quantile.x,
-      to = quantile.y, product
-    ) |> 
-    mutate(
-      product = product / sum_degree
-    ) |> 
-    rename(
-      weight = product
+      from = class.x,
+      to = class.y,
+      # weight_old
+      weight,
     )
 }
 
-generate_fully_assortative_mixing_matrix <- function(s) {
-  cross_join(s, s) |>
+# Full assortativity - if the class is the same, they get that activity level.
+# No effect of class population fractions on mixing
+generate_fully_assortative_mixing_matrix <- function(activity_classes) {
+  
+  cross_join(
+    activity_classes,
+    activity_classes
+  ) |>
     rename(
-      from = quantile.x,
-      to = quantile.y
+      from = class.x,
+      to = class.y
     ) |> 
     mutate(
       weight = ifelse(from == to,
-                      means_by_quantile.x,
+                      activity.x,
                       0)
     ) |> 
     select(
@@ -474,13 +491,32 @@ generate_fully_assortative_mixing_matrix <- function(s) {
     )
 }
 
-# wrapper function
-# sigma is the normal distribution standard deviation
-# alpha is the amount of assortativity
-generate_matrix <- function(sigma = 1, number_of_quantiles = 2, assort = 1) {
+# given an activity level standard deviation sigma and target number of classes,
+# compute the median activity level in each class.
+quantile_classes_median <- function(sigma, n_classes) {
+  fraction <- 1 / n_classes
+  breaks <- seq(from = 0,
+                to = 1,
+                length.out = n_classes + 1)
+  probs <- breaks[-1] - 0.5 * fraction
+  tibble(
+    class = seq_len(n_classes),
+    activity = qlnorm(probs, 0, sigma),
+    fraction = fraction
+  )
+}
+
+# given an activity level standard deviation sigma and target number of classes,
+# use the Monte Carlo quantile method to the mean activity level in each class.
+# Control the precision of the MC approximation with n_per_class (total sims =
+# n_classes * n_per_class)
+quantile_classes_mean <- function(sigma,
+                                  n_classes,
+                                  n_per_class = 10000) {
   
+  n_sims <- n_classes * n_per_class
   normal_dist_test.df <- as_tibble(
-    x = exp(rnorm(n = 1000000,
+    x = exp(rnorm(n = n_sims,
                   mean = 0,
                   sd = sigma))
   ) |> 
@@ -489,10 +525,108 @@ generate_matrix <- function(sigma = 1, number_of_quantiles = 2, assort = 1) {
     )
   
   s <- measure_mean_by_contact_quantile(normal_dist_test.df,
-                                        number_of_quantiles)
+                                        n_classes)
   
-  assortative_matrix <- generate_fully_assortative_mixing_matrix(s)
-  proportionate_matrix <- generate_proportionate_mixing_matrix(s)
+  s |>
+    mutate(
+      fraction = 1 / n_classes
+    ) %>%
+    select(
+      class = quantile,
+      activity = means_by_quantile,
+      fraction
+    )
+  
+}
+
+# given an activity level standard deviation sigma and target number of classes,
+# use Gaussian Legendre quadrature to define activity classes and compute the
+# population fraction (integration weight) and average activity level
+# (integration point location) in each class. alpha controls the bounds of ther
+# integration (from alpha/2 to 1-alpha/2), and the integral is corrected for the
+# missing tails
+gaussquad_classes <- function(sigma,
+                              n_classes,
+                              alpha = 0.01) {
+  quantile_bounds <- c(alpha / 2, 1 - alpha / 2)
+  log_activity_bounds <- qnorm(quantile_bounds,
+                               mean = 0,
+                               sd = sigma)
+  log_activity_range <- log_activity_bounds[2] - log_activity_bounds[1]
+  
+  # compute the integration points
+  if (n_classes > 1) {
+    quads <- gaussquad::hermite.he.quadrature.rules(n_classes)[[n_classes]]
+  } else {
+    # handle single-class situation
+    quads <- data.frame(
+      x = 0,
+      w = 2.506628
+    )
+  }
+  
+  quads |>
+    as_tibble() |>
+    # normalise the weights to population fractions
+    mutate(
+      fraction = w / sum(w)
+      # fraction = w
+    ) |>
+    mutate(
+      # convert form standard normal to lognormal with sigma
+      activity = exp(rev(x * sigma))
+    ) |>
+    # add classes
+    mutate(
+      class = row_number()
+    ) |>
+    select(
+      class,
+      activity,
+      fraction
+    )
+
+  # missing tail density needs to be added on, by dividing activities by 1 -
+  # alpha
+  
+}
+
+
+# wrapper function
+# sigma is the normal distribution standard deviation
+# assort is the amount of assortativity
+# n_classes is the number of classes to use to approximate the activity
+#   level variance
+
+# method is the method to use for integration: 'quantile_mean' to use quantiles
+# of equal size and quantile mean activity levels estimated by Monte Carlo
+# simulation,'quantile_median' for quantiles using the median (does not require
+# simulation), or 'gaussquad' to use Gaussian Legendre quadrature points, with
+# different weights (population fractions of classes) and fixed quadrature
+# points
+generate_matrix <- function(sigma = 1,
+                            assort = 1,
+                            n_classes = 2,
+                            method = c("quantile_mean",
+                                       "quantile_median",
+                                       "gaussquad")) {
+  
+  method <- match.arg(method)
+  
+  activity_classes <- switch(
+    method,
+    quantile_mean = quantile_classes_mean(sigma,
+                                          n_classes),
+    quantile_median = quantile_classes_median(sigma,
+                                              n_classes),
+    gaussquad = gaussquad_classes(sigma,
+                                  n_classes)
+  )
+  
+  assortative_matrix <- generate_fully_assortative_mixing_matrix(
+    activity_classes)
+  proportionate_matrix <- generate_proportionate_mixing_matrix(
+    activity_classes)
   
   assortative_matrix |> 
     rename(
@@ -528,12 +662,17 @@ matrix_to_eigenvalue <- function(M, eigen_value = 1) {
 
 map_to_eigen <- function(sigma = 1,
                          assort = 1,
-                         number_of_quantiles = 3,
+                         n_classes = 3,
                          eigen_value = 1,
-                         beta = 1) {
+                         beta = 1,
+                         method = c("quantile_mean",
+                                    "quantile_median",
+                                    "gaussquad")) {
+  method <- match.arg(method)
   M <- generate_matrix(sigma = sigma,
                        assort = assort,
-                       number_of_quantiles = number_of_quantiles)
+                       n_classes = n_classes,
+                       method = method)
   M |>
     mutate(
       weight_combined = weight_combined * beta

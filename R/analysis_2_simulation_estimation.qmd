@@ -48,6 +48,7 @@ Demonstrate underestimation of R0 when activity level not accounted for
 Illustration that individual variation in contact rates increases the eigenvalue. This effect is stronger with higher assortativity, but still the case with less assortativity.
 
 Run computations in parallel
+
 ```{r}
 plan(multisession, workers = 8)
 ```
@@ -65,7 +66,7 @@ output <- expand_grid(
     tmp = furrr::future_map2(assort,
                              bins,
                              ~ map_to_eigen(assort = .x,
-                                            number_of_quantiles = .y),
+                                            n_classes = .y),
                              .options = furrr_options(seed = TRUE))
   ) |> 
   unnest(
@@ -94,7 +95,120 @@ output |>
 
 ### New plot
 
-In the above plot, assortativity is on the x axis and therefore appears as the primary point of the plot, whereas the manuscript is more about activity levels. The colour is plotted as the number of bins, which is a metric of quality of the approximation than a measure of variation in activity levels. Therefore, try a new plot that plots eigencvalues against the activity level standard deviation sigma (x axis) with assortativity in colour.
+In the above plot, assortativity is on the x axis and therefore appears as the primary point of the plot, whereas the manuscript is more about activity levels.
+
+Also, the colour is plotted as the number of bins, which is a metric of quality of the approximation than a measure of variation in activity levels.
+
+Therefore, try a new plot that plots eigenvalues against the activity level standard deviation sigma (x axis) with assortativity in colour.
+
+#### Check integration options
+
+First though, try using a Gauss-legendre quadrature rule to set the classes, compare the results between the two approximations.
+
+We can check the two schemes give us sensible estimates for the mean and sd of the individual activity levels, given the parameter sigma (second parameter of a lognormal distribution) and a low number of classes
+
+```{r}
+n_classes <- 3
+sigma <- 0.5
+
+# compute mean and sd of a lognormal with this sigma
+mu <- 0
+true_mean <- exp(mu + sigma ^ 2 / 2)
+true_sd <- sqrt((exp(sigma ^ 2) - 1) * exp(2 * mu + sigma ^ 2))
+
+# compute the mean and sd approximations under these integration schemes
+
+# Gauss-Hermite quadrature
+gq_int <- gaussquad_classes(sigma = sigma, n_classes = n_classes)
+gq_mean <- sum(gq_int$activity * gq_int$fraction)
+gq_sd <- sqrt(sum(gq_int$activity ^ 2 * gq_int$fraction) - gq_mean ^ 2)
+
+# quantile method with class means
+qmn_int <- quantile_classes_mean(sigma = sigma, n_classes = n_classes)
+qmn_mean <- sum(qmn_int$activity * qmn_int$fraction)
+qmn_sd <- sqrt(sum(qmn_int$activity ^ 2 * qmn_int$fraction) - qmn_mean ^ 2)
+
+# quantile method with class medians
+qmd_int <- quantile_classes_median(sigma = sigma, n_classes = n_classes)
+qmd_mean <- sum(qmd_int$activity * qmd_int$fraction)
+qmd_sd <- sqrt(sum(qmd_int$activity ^ 2 * qmd_int$fraction) - qmd_mean ^ 2)
+
+# compare these
+tribble(
+  ~scheme,  ~mean,          ~sd,
+  "truth",  true_mean,      true_sd,
+  "gq",     gq_mean,        gq_sd,
+  "qmn",    qmn_mean,       qmn_sd,
+  "qmd",    qmd_mean,       qmd_sd
+)
+```
+
+Now try computing the eigenvalues of matrices using the Gauss-Hermite and quantile rules
+
+```{r}
+params <- expand_grid(
+  assort = seq(0, 0.1, 0.05),
+  bins = seq(2, 20, 1)
+)
+
+output_quantile <- params |> 
+  mutate(
+    tmp = furrr::future_map2(assort,
+                             bins,
+                             ~ map_to_eigen(assort = .x,
+                                            n_classes = .y,
+                                            method = "quantile_mean"),
+                             .options = furrr_options(seed = TRUE))
+  ) |> 
+  unnest(
+    tmp
+  )
+
+output_gaussquad <- params |> 
+  mutate(
+    tmp = furrr::future_map2(assort,
+                             bins,
+                             ~ map_to_eigen(assort = .x,
+                                            n_classes = .y,
+                                            method = "gaussquad"),
+                             .options = furrr_options(seed = TRUE))
+  ) |> 
+  unnest(
+    tmp
+  )
+
+bind_rows(
+  quantile = output_quantile,
+  gaussquad = output_gaussquad,
+  .id = "method"
+) |>
+  select(
+    method,
+    assort,
+    bins,
+    eigenvalue = tmp
+  ) |> 
+  mutate(
+    bins = as_factor(bins)
+  )|> 
+  ggplot(
+    aes(
+      x = assort,
+      y = eigenvalue,
+      colour = bins)
+  ) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~method) +
+  xlab("Assortativity") +
+  coord_cartesian(ylim = c(0, 20))
+
+```
+
+Something funky is going on with Gauss Hermite quadrature and number of bins, exacerbated by the degree of assortativity.
+
+#### Updated plot
+Now, try a new plot that plots eigenvalues against the activity level standard deviation sigma (x axis) with assortativity in colour, with number of bins fixed at a high level.
 
 ```{r}
 output <- expand_grid(
@@ -106,7 +220,7 @@ output <- expand_grid(
                                     assort,
                                     ~ map_to_eigen(sigma = .x,
                                                    assort = .y,
-                                                   number_of_quantiles = 300),
+                                                   n_classes = 300),
                              .options = furrr_options(seed = TRUE))
   ) |> 
   unnest(
@@ -152,9 +266,7 @@ ggsave("figures/activity_assort_plot.png",
        height = 4)
 ```
 
-
 ## Tom's concern simulation-estimation analysis
-
 
 Define a finite number of individuals and observations:
 

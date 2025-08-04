@@ -9,4 +9,4 @@ library(lme4)
 library(purrr)
 library(furrr)
 library(RCurl)
-
+library(gaussquad)
