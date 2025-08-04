@@ -1,0 +1,248 @@
+---
+title: "Analysis 1 - variance_partitioning"
+format: html
+editor: visual
+---
+
+## Variance partitioning analysis on contact rates
+
+How much variation in contact rates are we missing?
+
+\- Demonstrate from contact surveys with repeat measures that age & occupation do not capture much of the variation between individuals in average contact rates
+
+See variation_partitioning.R for mostly complete code
+
+Move code here
+
+NEED: Publication-quality single-panel figure of variance partitioning for different surveys
+
+#### Analyse partitioning of variation in contact rates (within/between individuals and strata)
+
+Load packages and functions
+
+```{r}
+#| message: false
+#| warning: false
+source("R/packages.R")
+source("R/functions.R")
+```
+
+Load the processed French Connection and Hong Kong data
+
+```{r}
+fc_contact_counts <- process_fc_data_varpart()
+hk_contact_counts <- process_hk_data_varpart()
+```
+
+Analyse this with a random effects model to capture the within-individual variation, the between-individual variation explained by age, and the residual between-individual variation
+
+Gaussian random effects model, with only age, and between vs within individual effects
+
+```{r}
+fc_model_lmer_none <- lmer(
+  log1p(contacts) ~ (1|part_id),
+  data = fc_contact_counts
+)
+
+fc_model_lmer_age <- lmer(
+  log1p(contacts) ~ (1|part_age) +
+    (1|part_id),
+  data = fc_contact_counts
+)
+
+# the same but with gender and occupation (confounded)
+fc_model_lmer_all <- lmer(
+  log1p(contacts) ~ (1|part_age) +
+    (1|part_gender) +
+    (1|part_occupation) +
+    (1|part_id),
+  data = fc_contact_counts
+)
+```
+
+Now for Hong Kong
+
+```{r}
+hk_model_lmer_none <- lmer(
+  log1p(contacts) ~ (1|part_id),
+  data = hk_contact_counts
+)
+
+hk_model_lmer_age <- lmer(
+  log1p(contacts) ~ (1|part_age) +
+    (1|part_id),
+  data = hk_contact_counts
+)
+
+# the same but with gender (confounded)
+hk_model_lmer_all <- lmer(
+  log1p(contacts) ~ (1|part_age) +
+    (1|part_gender) +
+    (1|part_id),
+  data = hk_contact_counts
+)
+```
+
+Do variance partitioning on each, combining across studies
+
+```{r}
+partitioning_none <- bind_rows(
+  France = partition_variance_lmer(fc_model_lmer_none),
+  `Hong Kong` = partition_variance_lmer(hk_model_lmer_none),
+  .id = "Study"
+)
+
+partitioning_age <- bind_rows(
+  France = partition_variance_lmer(fc_model_lmer_age),
+  `Hong Kong` = partition_variance_lmer(hk_model_lmer_age),
+  .id = "Study"
+)
+
+partitioning_all <- bind_rows(
+  France = partition_variance_lmer(fc_model_lmer_all),
+  `Hong Kong` = partition_variance_lmer(hk_model_lmer_all),
+  .id = "Study"
+)
+```
+
+Make barplots of these
+
+```{r}
+barplot_none <- make_barplot(partitioning_none) +
+  ggtitle(label = "no covariates")
+barplot_age <- make_barplot(partitioning_age) +
+  ggtitle(label = "age only")
+barplot_all <- make_barplot(partitioning_all) +
+  ggtitle(label = "additional predictors")
+
+varpart <- barplot_age +
+  ggtitle(
+    label = "Partitioning variance in daily (log1p) contact rates"
+  )
+ggsave("figures/varpart_age.png",
+       plot = varpart,
+       bg = "white",
+       scale = 1,
+       width = 6,
+       height = 4)
+```
+
+![](../figures/varpart_age.png)
+
+Arrange them in a multipanel figure, for supplemental materials
+
+```{r}
+varpart_all <- (barplot_none / barplot_age / barplot_all) +
+  plot_annotation(title = "Partitioning variance in daily (log1p) contact rates")
+
+ggsave("figures/varpart_all.png",
+       plot = varpart_all,
+       bg = "white",
+       scale = 1,
+       width = 6,
+       height = 12)
+```
+
+![](../figures/varpart_all.png)
+
+Sanity check this analysis by permuting the participant IDs - we would expect the proportion of variance within individuals (not explained by age/individual) to be high if we shuffled the data around between individuals/repeats. So confirm this.
+
+```{r}
+# sanity check contact variance analysis by permuting the participant IDs
+permute_sim <- function() {
+  fc_contact_counts %>%
+    mutate(
+      contacts = sample(contacts)
+    ) %>%
+    lmer(
+      log1p(contacts) ~ (1|part_age) + (1|part_id),
+      data = .
+    ) %>%
+    partition_variance_lmer() %>%
+    select(-var) %>%
+    pivot_wider(
+      names_from = "partition",
+      values_from = "proportion"
+    )
+}
+
+sims_list <- replicate(50,
+                       permute_sim(),
+                  simplify = FALSE)
+sims_df <- do.call(bind_rows, sims_list)
+
+partitions <- partitioning_age$partition
+
+for (i in seq_along(partitions)) {
+  this_partition <- partitions[i]
+  this_study <- partitioning_age$Study[i]
+  perturbed_props <- sims_df[[this_partition]]
+  estimated_prop <- partitioning_age |>
+    filter(partition == this_partition) |>
+    pull(proportion)
+  
+  xlim <- range(c(perturbed_props, estimated_prop))
+  
+  hist(perturbed_props,
+       xlim = xlim,
+       breaks = 100,
+       xlab = "Proportion",
+       main = paste(this_study,
+                    this_partition,
+                    sep = "\n"))
+  abline(v = estimated_prop)
+}
+```
+
+Alternatively, model age first, then add estimates as an offset
+
+```{r}
+fc_model_lmer_only_age <- lmer(
+  log1p(contacts) ~ (1|part_age),
+  data = fc_contact_counts
+)
+
+# using tidyverse pipes as R native pipes are cracking the shits at my abuse of infix notation
+age_offset_lookup <- fc_model_lmer_only_age %>%
+  coef %>%
+  `$`(part_age) %>%
+  tibble(
+    part_age = rownames(.),
+    offset = .[, 1]
+  ) %>%
+  select(-`(Intercept)`)
+
+fc_contact_counts_age_est <- fc_contact_counts |>
+  left_join(age_offset_lookup,
+            by = "part_age")
+
+fc_model_lmer_part_given_age <- lmer(
+  log1p(contacts) ~ (1|part_id) + offset(offset),
+  data = fc_contact_counts_age_est
+)
+
+fc_model_lmer_only_age
+# 0.2154 sd age
+# 0.6929 sd other
+fc_model_lmer_part_given_age
+# (of the other)
+# 0.4181 sd participant
+# 0.5478 participant
+```
+
+Compute variance partitions
+
+```{r}
+age_frac <- (0.2154^2) / (0.2154^2 + 0.6929^2)
+non_age_frac <- 1 - age_frac
+
+part_frac_of_other <- (0.4181^2) / (0.4181^2 + 0.5478^2)
+non_part_frac_of_other <- 1 - part_frac_of_other
+
+part_frac <- non_age_frac * part_frac_of_other
+within_frac <- non_age_frac * non_part_frac_of_other
+
+within_frac # 58%
+part_frac # 33%
+age_frac # 9%
+```
