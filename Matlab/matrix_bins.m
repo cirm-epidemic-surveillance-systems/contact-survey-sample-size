@@ -26,10 +26,13 @@ for iTry = 1:nTries
     % Find quantiles of activity levels to define bin edges
     qt = 0:(1/nBins(iTry)):1;
     activityQuantiles = quantile(activity, qt);
-    activityBinMean = zeros(1, nBins(iTry));
+    % Adjust the first and last bin edges so that these bins contain the min and max of the values
+    activityQuantiles(1) = 0;
+
     % Find the mean activity level with each bin
+    activityBinMean = zeros(1, nBins(iTry));
     for iBin = 1:nBins(iTry)
-        inBinFlag = activity >= activityQuantiles(iBin) & activity < activityQuantiles(iBin+1);
+        inBinFlag = activity > activityQuantiles(iBin) & activity <= activityQuantiles(iBin+1);
         activityBinMean(iBin) = mean(activity(inBinFlag)); 
     end
     % Form the binned contact matrix and find its dominant eigenvalue
