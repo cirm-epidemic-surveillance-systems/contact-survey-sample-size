@@ -106,15 +106,15 @@ Now, try a new plot that plots eigenvalues against the activity level standard d
 ```{r}
 output <- expand_grid(
   sigma = seq(0, 1, 0.05),
-  assort = seq(0, 1, 0.2)
+  assort = seq(0, 0.5, 0.1)
 )|> 
   mutate(
     eigenvalue = furrr::future_map2(sigma,
                                     assort,
-                                    ~ map_to_eigen(sigma = .x,
-                                                   assort = .y,
-                                                   n_classes = 300),
-                             .options = furrr_options(seed = TRUE))
+                                    ~map_to_eigen(sigma = .x,
+                                                  assort = .y,
+                                                  n_classes = 10),
+                                    .options = furrr_options(seed = TRUE))
   ) |> 
   unnest(
     eigenvalue
@@ -133,14 +133,12 @@ activity_assort_plot <- output |>
   ggplot(
     aes(
       x = sigma,
-      y = eigenvalue,
-      group = Assortativity,
-      colour = Assortativity)
+      y = eigenvalue)
   ) +
   geom_line() +
-  scale_color_gradient(
-    low = grey(0.8),
-    high = "blue"
+  facet_wrap(
+    ~Assortativity,
+    scales = "free_y"
   ) +
   xlab("Variation in activity levels") +
   ylab("Eigenvalue") +
