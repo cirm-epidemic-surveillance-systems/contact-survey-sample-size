@@ -439,31 +439,23 @@ measure_mean_by_contact_quantile <- function(contacts, n_quantiles) {
 }
 
 generate_proportionate_mixing_matrix <- function(activity_classes) {
-  # # fraction of contactees in each class, if even population fractions
-  # sum_degree_old <- sum(activity_classes$activity)
-  n_classes <- nrow(activity_classes)
 
-  # all contact events, accounting for uneven population fractions
-  sum_degree <- sum(activity_classes$activity *
-                      activity_classes$fraction *
-                      n_classes)
+  # average contacts, accounting for uneven population fractions
+  mean_degree <- sum(activity_classes$activity * activity_classes$fraction)
+  
   cross_join(
     activity_classes,
     activity_classes
   ) |> 
     mutate(
-      # weight_old = activity.x * activity.y / sum_degree_old,
       # for each contact, the probability the contactee is in the y compartment
-      prob_contactee = n_classes * fraction.y * activity.y,
-      # # probability the contactor is in the x compartment
-      prob_contactor = n_classes * fraction.x * activity.x,
-      weight = prob_contactor * prob_contactee / sum_degree,
+      prob_contactee = activity.y * fraction.y / mean_degree,
+      weight = activity.x * prob_contactee,
     ) |> 
     select(
       from = class.x,
       to = class.y,
-      # weight_old
-      weight,
+      weight
     )
 }
 
@@ -491,20 +483,66 @@ generate_fully_assortative_mixing_matrix <- function(activity_classes) {
     )
 }
 
-# given an activity level standard deviation sigma and target number of classes,
-# compute the median activity level in each class.
-quantile_classes_median <- function(sigma, n_classes) {
-  fraction <- 1 / n_classes
-  breaks <- seq(from = 0,
-                to = 1,
-                length.out = n_classes + 1)
-  probs <- breaks[-1] - 0.5 * fraction
+# use numerical integration to estimate the mean activity level in a bin bounded
+# by lower and upper activity classes, for a given value of sigma
+bin_mean_activity <- function(lower, upper, sigma) {
+  f <- function(x) {
+    x * dlnorm(x, meanlog = 0, sdlog = sigma)
+  }
+  # compute the expectation
+  int <- integrate(f,
+                   lower = lower,
+                   upper = upper)
+  
+  # correct for truncation (normalises the densities to the truncated range)
+  cdf_upper <- plnorm(upper, meanlog = 0, sdlog = sigma)
+  cdf_lower <- plnorm(lower, meanlog = 0, sdlog = sigma)
+  interval <- cdf_upper - cdf_lower
+  
+  int$value / interval
+}
+
+# quantile method, but with finite support and numerical integration to get mean
+# activity level per bin
+quantile2_classes_mean <- function(sigma,
+                                   n_classes,
+                                   alpha = 1e-5) {
+  
+  # upper limit for integration
+  max_quantile <- 1 - alpha
+  # max_activity <- qlnorm(max_quantile, meanlog = 0, sdlog = sigma)
+  
+  # define quantiles and get lower and upper bounds of the bins
+  probs <- seq(0, max_quantile, length.out = n_classes + 1)
+  breaks <- qlnorm(probs, meanlog = 0, sdlog = sigma)
+  lower_bounds <- breaks[-length(breaks)]
+  upper_bounds <- breaks[-1]
+  
+  # compute the mean activity level in each bin
+  activity <- mapply(bin_mean_activity,
+                     lower_bounds,
+                     upper_bounds,
+                     MoreArgs = list(sigma = sigma))
+  
+  # get the population fraction in each bin, accounting for upper truncation
+  cdf_upper <- plnorm(upper_bounds,
+                      meanlog = 0,
+                      sdlog = sigma)
+  cdf_lower <- plnorm(lower_bounds,
+                      meanlog = 0,
+                      sdlog = sigma)
+  
+  fraction <- (cdf_upper - cdf_lower) / max_quantile
+  
+  # return the tibble
   tibble(
     class = seq_len(n_classes),
-    activity = qlnorm(probs, 0, sigma),
+    activity = activity,
     fraction = fraction
   )
+  
 }
+
 
 # given an activity level standard deviation sigma and target number of classes,
 # use the Monte Carlo quantile method to the mean activity level in each class.
@@ -591,37 +629,72 @@ gaussquad_classes <- function(sigma,
   
 }
 
+# given sigma, a number of classes, and a method, return a binning scheme with
+# activity classes
+get_activity_classes <- function(sigma,
+                                 n_classes,
+                                 method = c("quantile_mean",
+                                            "quantile2_mean",
+                                            "gaussquad")) {
+  switch(
+    method,
+    quantile_mean = quantile_classes_mean(sigma,
+                                          n_classes),
+    quantile2_mean = quantile2_classes_mean(sigma,
+                                            n_classes),
+    gaussquad = gaussquad_classes(sigma,
+                                  n_classes)
+  )
+}
+
+# estimate the mean of a lognormal distribution with parameter `sigma`,
+# using `n_classes` bins defined by method `method`.
+bin_estimate_mean <- function(sigma,
+                              n_classes,
+                              method = method) {
+  
+  activity_classes <- get_activity_classes(sigma = sigma,
+                                           n_classes = n_classes,
+                                           method = method)
+  sum(activity_classes$activity * activity_classes$fraction)
+  
+}
+# estimate the sd of a lognormal distribution with parameter `sigma`,
+# using `n_classes` bins defined by method `method`.
+bin_estimate_sd <- function(sigma,
+                            n_classes,
+                            method = method) {
+  
+  activity_classes <- get_activity_classes(sigma = sigma,
+                                           n_classes = n_classes,
+                                           method = method)
+  
+  mean <- sum(activity_classes$activity * activity_classes$fraction)
+  
+  sqrt(sum(activity_classes$activity ^ 2 * activity_classes$fraction) - mean ^ 2)
+  
+}
 
 # wrapper function
 # sigma is the normal distribution standard deviation
 # assort is the amount of assortativity
 # n_classes is the number of classes to use to approximate the activity
 #   level variance
-
 # method is the method to use for integration: 'quantile_mean' to use quantiles
-# of equal size and quantile mean activity levels estimated by Monte Carlo
-# simulation,'quantile_median' for quantiles using the median (does not require
-# simulation), or 'gaussquad' to use Gaussian Legendre quadrature points, with
-# different weights (population fractions of classes) and fixed quadrature
-# points
+#   of equal size and quantile mean activity levels estimated by Monte Carlo
+#   simulation, 'quantile2_mean' does the same by numerical integration,
+#   'gaussquad' uses Gaussian Legendre quadrature points, with different weights
+#   (population fractions of classes) and fixed quadrature points.
 generate_matrix <- function(sigma = 1,
                             assort = 1,
                             n_classes = 2,
                             method = c("quantile_mean",
-                                       "quantile_median",
+                                       "quantile2_mean",
                                        "gaussquad")) {
   
-  method <- match.arg(method)
-  
-  activity_classes <- switch(
-    method,
-    quantile_mean = quantile_classes_mean(sigma,
-                                          n_classes),
-    quantile_median = quantile_classes_median(sigma,
-                                              n_classes),
-    gaussquad = gaussquad_classes(sigma,
-                                  n_classes)
-  )
+  activity_classes <- get_activity_classes(sigma = sigma,
+                                           n_classes = n_classes,
+                                           method = method)
   
   assortative_matrix <- generate_fully_assortative_mixing_matrix(
     activity_classes)
@@ -657,7 +730,7 @@ matrix_to_eigenvalue <- function(M, eigen_value = 1) {
       weight_combined
     ) |> 
     eigen() 
-  decomp$values[eigen_value]
+  Re(decomp$values[eigen_value])
 }
 
 map_to_eigen <- function(sigma = 1,
@@ -666,7 +739,7 @@ map_to_eigen <- function(sigma = 1,
                          eigen_value = 1,
                          beta = 1,
                          method = c("quantile_mean",
-                                    "quantile_median",
+                                    "quantile2_mean",
                                     "gaussquad")) {
   method <- match.arg(method)
   M <- generate_matrix(sigma = sigma,
@@ -692,4 +765,12 @@ make_contact_matrix <- function(class_means) {
 # get the dominant eigenvalue of a matrix
 get_eigenval <- function(matrix) {
   Re(eigen(matrix)$values[1])
+}
+
+# get it faster (but mor approximately) using the power method
+fast_eigenval <- function(matrix, tol = 0.001, maxiter = 1000) {
+  eig <- fastmatrix::power.method(matrix,
+                                  maxiter = maxiter,
+                                  tol = tol)  
+  eig$value
 }
