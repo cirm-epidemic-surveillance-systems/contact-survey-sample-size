@@ -633,9 +633,9 @@ gaussquad_classes <- function(sigma,
 # activity classes
 get_activity_classes <- function(sigma,
                                  n_classes,
-                                 method = c("quantile_mean",
-                                            "quantile2_mean",
-                                            "gaussquad")) {
+                                 method = c("gaussquad",
+                                            "quantile_mean",
+                                            "quantile2_mean")) {
   switch(
     method,
     quantile_mean = quantile_classes_mean(sigma,
@@ -688,9 +688,9 @@ bin_estimate_sd <- function(sigma,
 generate_matrix <- function(sigma = 1,
                             assort = 1,
                             n_classes = 2,
-                            method = c("quantile_mean",
-                                       "quantile2_mean",
-                                       "gaussquad")) {
+                            method = c("gaussquad",
+                                       "quantile_mean",
+                                       "quantile2_mean")) {
   
   activity_classes <- get_activity_classes(sigma = sigma,
                                            n_classes = n_classes,
@@ -738,9 +738,9 @@ map_to_eigen <- function(sigma = 1,
                          n_classes = 3,
                          eigen_value = 1,
                          beta = 1,
-                         method = c("quantile_mean",
-                                    "quantile2_mean",
-                                    "gaussquad")) {
+                         method = c("gaussquad",
+                                    "quantile_mean",
+                                    "quantile2_mean")) {
   method <- match.arg(method)
   M <- generate_matrix(sigma = sigma,
                        assort = assort,
