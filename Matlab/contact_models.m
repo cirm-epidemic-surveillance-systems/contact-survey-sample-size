@@ -18,6 +18,11 @@ eps_toPlot = [1, 11, 21];
 b_arr = 0:2:40;
 b_toPlot = [1, 11, 21];
 
+% Array of sigma values to use
+Sigma_arr = 0:0.1:1;
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 % Number of bins to discretise and plot the contact matrix
 nBins = 100;
 
@@ -74,7 +79,6 @@ for ia = 1:na
         b = b_arr(ib);
             
         % Calculate the kernel as a fuction of Y-X
-        %gk = exp(-(Y-X).^2/(2*ak^2));
         gk = exp(-b*(Y-X).^2);
     
         % Calculate the product v(y)*g(y-x)
@@ -122,6 +126,46 @@ for ia = 1:na
 end
 sgtitle('check that matrix column sums gives correct activity level dist')
 
+
+% Now do the same thing with the simplified assortative mixing model (fixing eps=1), varying b and sigma
+na = length(Sigma_arr);
+domEig2 = zeros(na, nb);
+for ia = 1:na
+    Sigma = Sigma_arr(ia);
+    if Sigma > 0
+        v = logninv(x, 0, Sigma);
+        Ev = dx*sum(v);
+    else
+        % If sigma=0, everyone's activity level is 1
+        v = ones(size(x));
+        Ev = 1;
+    end
+
+    % Proportionate mixing model matrix
+    M_PM = v'.*v/Ev;
+  
+    for ib = 1:nb
+        b = b_arr(ib);
+            
+        % Calculate the kernel as a fuction of Y-X
+        gk = exp(-b*(Y-X).^2);
+    
+        % Calculate the product v(y)*g(y-x)
+        C = v'.*gk;
+    
+        % Calculte denominator of equation for M
+        den = dx*sum(C, 1);
+    
+        % Assortative mixing matrix
+        M_AM = v.*C./den;
+
+        % Calculate dominant eigenvalue
+        domEig2(ia, ib) = dx*eigs(M_AM, 1);
+    end
+end
+
+
+
 % Contour plot of the dominant eigenvalue against epsilon and b
 figure(3);
 contourf(b_arr, eps_arr, domEig);
@@ -132,3 +176,15 @@ xlabel('b')
 ylabel('\epsilon')
 title('dominant eigenvalue (relative to \sigma=0)')
 
+
+
+% Plot of the dominant eigenvalue against sigma for various b (every 5th
+% value)
+bPick = 1:5:nb;
+figure(4);
+plot(Sigma_arr, domEig2(:, bPick));
+grid on
+xlabel('\sigma')
+ylabel('dominant eigenvalue')
+l = legend(string(b_arr(bPick)), 'Location', 'northwest')
+title(l, 'b');
