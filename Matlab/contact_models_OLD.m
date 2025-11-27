@@ -78,11 +78,17 @@ for ia = 1:na
     for ib = 1:nb
         b = b_arr(ib);
             
-        % Make contract matrix according to assortativity model
-        M1 = makeContactMatrix(X, Y, v, b );
-
-        % Linear combination of proportionate and assortative matrices
-        M_AM = (1-eps)*M_PM + eps * M1;
+        % Calculate the kernel as a fuction of Y-X
+        gk = exp(-b*(Y-X).^2);
+    
+        % Calculate the product v(y)*g(y-x)
+        C = v'.*gk;
+    
+        % Calculte denominator of equation for M
+        den = dx*sum(C, 1);
+    
+        % Assortative mixing matrix
+        M_AM = (1-eps)*M_PM + eps * v.*C./den;
 
         % Calculate dominant eigenvalue
         domEig(ia, ib) = dx*eigs(M_AM, 1);
@@ -121,10 +127,6 @@ end
 sgtitle('check that matrix column sums gives correct activity level dist')
 
 
-
-
-
-
 % Now do the same thing with the simplified assortative mixing model (fixing eps=1), varying b and sigma
 na = length(Sigma_arr);
 domEig2 = zeros(na, nb);
@@ -145,8 +147,17 @@ for ia = 1:na
     for ib = 1:nb
         b = b_arr(ib);
             
-        % Make contract matrix according to assortativity model
-        M_AM = makeContactMatrix(X, Y, v, b );
+        % Calculate the kernel as a fuction of Y-X
+        gk = exp(-b*(Y-X).^2);
+    
+        % Calculate the product v(y)*g(y-x)
+        C = v'.*gk;
+    
+        % Calculte denominator of equation for M
+        den = dx*sum(C, 1);
+    
+        % Assortative mixing matrix
+        M_AM = v.*C./den;
 
         % Calculate dominant eigenvalue
         domEig2(ia, ib) = dx*eigs(M_AM, 1);
