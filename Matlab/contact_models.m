@@ -30,7 +30,8 @@ nBins = 100;
 na = length(eps_arr);
 nb = length(b_arr);
 
-
+TOL = 1e-10;
+relFact = 0.5;
 
 % Create a grid of nBins x values placed at the midpoint of each "bin"
 dx = 1/nBins;
@@ -72,6 +73,10 @@ h = figure(2);
 h.Position = [      180          94        1096         837];
 tiledlayout(3, 3, "TileSpacing", "compact")
 
+h = figure(3);
+h.Position = [      180          94        1096         837];
+tiledlayout(3, 3, "TileSpacing", "compact")
+
 % Calculate the fully assortative mixing model (epsilon=1) for each value of b
 for ia = 1:na
     eps = eps_arr(ia);
@@ -91,6 +96,28 @@ for ia = 1:na
         % activity class by summing columns of the matrix
         aggCont_AM = dx*sum(M_AM, 1);
 
+
+        % Tom's method
+        gk = calcKernel(Y-X, b);
+        w = ones(size(v));
+        convFlag = false;
+        while ~convFlag
+            wSav = w;
+            w = (1-relFact)*w + relFact * 1/dx * v./(gk*w')';
+            convFlag = norm(w-wSav, inf)/norm(wSav, inf) < TOL;
+        end
+        T = w.*w'.*gk;
+
+        % Check matrix is symmetric to within tolerance
+        assert(max(max(abs(T-T'))) < 1e-12);
+
+        T = (1-eps)*M_PM + eps*T;
+        
+        domEig_Tom(ia, ib) = dx*eigs(T, 1);
+        aggCont_Tom =dx*sum(T, 1);
+
+
+
         % Make plots (for selected parameter values)
         if ismember(ia, eps_toPlot) & ismember(ib, b_toPlot)
             % Plot contact matrix
@@ -104,16 +131,27 @@ for ia = 1:na
             xlabel('activity level quantile of individual (x)')
             ylabel('activity level quantile of contact (y)')
 
-            % Plot activity level distribution 
             figure(2);
             nexttile;
-            plot(x, aggCont_PM, x, aggCont_AM)
+            imagesc(x, x, T);
+            title(sprintf('eps = %.1f, b = %.1f, lambda = %.2f', eps, b, domEig_Tom(ia, ib) ))         
+            h = gca;
+            h.YDir = 'normal';
+            colorbar;
+            xlabel('activity level quantile of individual (x)')
+            ylabel('activity level quantile of contact (y)')
+
+
+            % Plot activity level distribution 
+            figure(3);
+            nexttile;
+            plot(x, aggCont_PM, x, aggCont_AM, x, aggCont_Tom)
             hold on 
             plot(x, v, '--')
             grid on
             xlabel('activity level quantile')
             ylabel('total contact rate')
-            legend('PM', 'AM', 'log-norm dist', 'location', 'northwest')
+            legend('PM', 'AM', 'Tom', 'log-norm dist', 'location', 'northwest')
             title(sprintf('eps = %.1f, b = %.1f', eps, b))
         end
     end
@@ -128,6 +166,8 @@ sgtitle('check that matrix column sums gives correct activity level dist')
 % Now do the same thing with the simplified assortative mixing model (fixing eps=1), varying b and sigma
 na = length(Sigma_arr);
 domEig2 = zeros(na, nb);
+domEig2_Tom = zeros(na, nb);
+
 for ia = 1:na
     Sigma = Sigma_arr(ia);
     if Sigma > 0
@@ -141,7 +181,7 @@ for ia = 1:na
 
     % Proportionate mixing model matrix
     M_PM = v'.*v/Ev;
-  
+
     for ib = 1:nb
         b = b_arr(ib);
             
@@ -150,28 +190,70 @@ for ia = 1:na
 
         % Calculate dominant eigenvalue
         domEig2(ia, ib) = dx*eigs(M_AM, 1);
+
+        % Tom's method
+        gk = calcKernel(Y-X, b);
+        w = ones(size(v));
+        convFlag = false;
+        while ~convFlag
+            wSav = w;
+            w = (1-relFact)*w + relFact * 1/dx * v./(gk*w')';
+            convFlag = norm(w-wSav, inf)/norm(wSav, inf) < TOL;
+        end
+        T = w.*w'.*gk;
+
+
+        % Calculate dominant eigenvalue
+        domEig2_Tom(ia, ib) = dx*eigs(T, 1);
     end
 end
 
 
 
 % Contour plot of the dominant eigenvalue against epsilon and b
-figure(3);
+h = figure(4);
+h.Position = [  31         105        1194         800];
+tiledlayout(2, 2, "TileSpacing", "compact")
+nexttile;
 contourf(b_arr, eps_arr, domEig);
 h = gca;
 h.YDir = 'normal';
 colorbar;
+clim([1.25 1.75])
 xlabel('b')
 ylabel('\epsilon')
-title('dominant eigenvalue (relative to \sigma=0)')
+title('Mike - dominant eigenvalue (relative to \sigma=0)')
 
 
 
 % Plot of the dominant eigenvalue against sigma for various b (every 5th
 % value)
 bPick = 1:5:nb;
-figure(4);
+nexttile;
 plot(Sigma_arr, domEig2(:, bPick));
+grid on
+xlabel('\sigma')
+ylabel('dominant eigenvalue')
+l = legend(string(b_arr(bPick)), 'Location', 'northwest');
+title(l, 'b');
+
+nexttile;
+contourf(b_arr, eps_arr, domEig_Tom);
+h = gca;
+h.YDir = 'normal';
+colorbar;
+clim([1.25 1.75])
+xlabel('b')
+ylabel('\epsilon')
+title('Tom - dominant eigenvalue (relative to \sigma=0)')
+
+
+
+% Plot of the dominant eigenvalue against sigma for various b (every 5th
+% value)
+bPick = 1:5:nb;
+nexttile;
+plot(Sigma_arr, domEig2_Tom(:, bPick));
 grid on
 xlabel('\sigma')
 ylabel('dominant eigenvalue')
