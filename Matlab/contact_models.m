@@ -49,14 +49,14 @@ Ev = dx*sum(v);
 
 
 % Proportionate mixing model matrix
-M_PM = v'.*v/Ev;
+M_PM = dx * v'.*v/Ev;
 
 % Calculate dominant eigenvalue for proportionate mixing
-domEig_PM = dx*eigs(M_PM, 1);
+domEig_PM = eigs(M_PM, 1);
 
 % Calculate the aggregate contacts for someone as a function of their
 % activity class by summing columns of the matrix
-aggCont_PM = dx*sum(M_PM, 1);
+aggCont_PM = sum(M_PM, 1);
        
    
 
@@ -90,11 +90,11 @@ for ia = 1:na
         M_AM = (1-eps)*M_PM + eps * M1;
 
         % Calculate dominant eigenvalue
-        domEig(ia, ib) = dx*eigs(M_AM, 1);
+        domEig(ia, ib) = eigs(M_AM, 1);
 
         % Calculate the aggregate contacts for someone as a function of their
         % activity class by summing columns of the matrix
-        aggCont_AM = dx*sum(M_AM, 1);
+        aggCont_AM = sum(M_AM, 1);
 
 
         % Tom's method
@@ -106,15 +106,15 @@ for ia = 1:na
             w = (1-relFact)*w + relFact * 1/dx * v./(gk*w')';
             convFlag = norm(w-wSav, inf)/norm(wSav, inf) < TOL;
         end
-        T = w.*w'.*gk;
+        T = dx* w.*w'.*gk;
 
         % Check matrix is symmetric to within tolerance
         assert(max(max(abs(T-T'))) < 1e-12);
 
         T = (1-eps)*M_PM + eps*T;
         
-        domEig_Tom(ia, ib) = dx*eigs(T, 1);
-        aggCont_Tom =dx*sum(T, 1);
+        domEig_Tom(ia, ib) = eigs(T, 1);
+        aggCont_Tom = sum(T, 1);
 
 
 
@@ -189,7 +189,7 @@ for ia = 1:na
         M_AM = makeContactMatrix(X, Y, v, b );
 
         % Calculate dominant eigenvalue
-        domEig2(ia, ib) = dx*eigs(M_AM, 1);
+        domEig2(ia, ib) = eigs(M_AM, 1);
 
         % Tom's method
         gk = calcKernel(Y-X, b);
@@ -200,11 +200,11 @@ for ia = 1:na
             w = (1-relFact)*w + relFact * 1/dx * v./(gk*w')';
             convFlag = norm(w-wSav, inf)/norm(wSav, inf) < TOL;
         end
-        T = w.*w'.*gk;
+        T = dx * w.*w'.*gk;
 
 
         % Calculate dominant eigenvalue
-        domEig2_Tom(ia, ib) = dx*eigs(T, 1);
+        domEig2_Tom(ia, ib) = eigs(T, 1);
     end
 end
 
