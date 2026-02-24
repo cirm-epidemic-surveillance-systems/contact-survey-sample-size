@@ -1,4 +1,4 @@
-function M = makeContactMatrix_AM(v, b, pPop)
+function M = makeContactMatrix_AM(v, pPop, b)
 
 % Function to make an assortative mixing contact matrix from a specified
 % distribution of activity levels (in discrete bins) and assortativity
@@ -8,6 +8,8 @@ function M = makeContactMatrix_AM(v, b, pPop)
 %
 % INPUTS: v - 1 n x vector of monotonically increaing activity levels in
 % each bin
+%         pPop - 1 n x vector containing the proportion of the population in each
+% activity level bin
 %         b - non-negative scalar parameter for the assortativity kernel
 %         (larger b means stronger assortativity and b=0 should reduce to
 %         proportionate mixing)
@@ -40,21 +42,22 @@ C = pPop'.*v'.*gk;
 % Calculte denominator of equation for M
 den = sum(tril(C));
 
-% Calculate matrix pi_i *v(y)*g(y-x) / int_x^1 [pi(y)*v(y)*g(y-x)*dy]
+% Calculate matrix pi_i * v_i * g_ij / sum_j^n [pi_k * v_k  * g_kj]
 M1 = C./den;
 
-% For the first column, multiply by v(x)
+% For the first column (j=1), multiply by v_j
 M1(:, 1) = M1(:, 1) * v(1);
 
-% For each subsequent column (from the main diagonal down), multiply by [v(x) - int_0^x M(x',x)*dx']
+% For each subsequent column (from the main diagonal down), multiply by [v_j - sum_1^(j-1) pi_k/pi_j * M_jk ]
 for jCol = 2:nBins
-    M1(jCol:end, jCol) = M1(jCol:end, jCol) * (v(jCol) - sum(M1(jCol, 1:jCol-1)));
+    M1(jCol:end, jCol) = M1(jCol:end, jCol) * (v(jCol) - sum(pPop(1:jCol-1).*M1(jCol, 1:jCol-1))/pPop(jCol) );
 end
 
 % Fill the upper triangle of the matrix by transposing the lower triangle
-M = tril(M1) + tril(M1, -1)';
+% and multiplying by pi_i/pi_j
+M = tril(M1) + tril(M1, -1)' .* (pPop'./pPop);
 
 
-% Check matrix is symmetric to within tolerance
-assert(max(max(abs(M-M'))) < 1e-12);
+% Check detailed balance condition ismatrix is symmetric to within tolerance
+%assert(max(max(abs(M-M'))) < 1e-12);
 

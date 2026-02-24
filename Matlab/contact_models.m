@@ -42,6 +42,8 @@ nx = length(x);
 % Make a vector containing the proportion of the population in each
 % activity level bin
 pPop = dx*ones(1, nBins);
+%pPop = linspace(10, 1, nBins); pPop = pPop/sum(pPop);
+%pPop = [10*ones(1, 10), ones(1, nBins-10)]; pPop = pPop/sum(pPop);
 
 % Calculate v as the inverse CDF of the log normal activity level distribution
 v = logninv(x, 0, Sigma);
@@ -56,6 +58,17 @@ domEig_PM = eigs(M_PM, 1);
 % activity class by summing columns of the matrix
 aggCont_PM = sum(M_PM, 1);
        
+
+% Plot PM contact matrix
+figure(10);
+imagesc(x, x, M_PM);
+title(sprintf('lambda = %.2f', domEig_PM ))         
+h = gca;
+h.YDir = 'normal';
+colorbar;
+xlabel('activity level quantile of individual (x)')
+ylabel('activity level quantile of contact (y)')
+
 
 
 

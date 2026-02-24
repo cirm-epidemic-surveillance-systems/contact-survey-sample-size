@@ -23,4 +23,4 @@ pPop = pPop/sum(pPop);
 Ev = sum(pPop.*v);
 
 % Make matrix
-M = pPop .* (v'.*v)/Ev;
+M = pPop'.*v'.*v/Ev;

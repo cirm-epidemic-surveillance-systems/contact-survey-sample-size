@@ -47,5 +47,6 @@ end
 M = pPop'.*w.*w'.*gk;
 
 % Check matrix is symmetric to within tolerance
-assert(max(max(abs(M-M'))) < 1e-12);
+aggCont = pPop.*M;
+assert(max(max(abs(aggCont-aggCont'))) < 1e-12);
 

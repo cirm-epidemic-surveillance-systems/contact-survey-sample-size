@@ -58,6 +58,7 @@ end
 M = tril(M1) + tril(M1, -1)' .* (pPop'./pPop);
 
 
-% Check matrix is symmetric to within tolerance
-assert(max(max(abs(M-M'))) < 1e-12);
+% Check detailed balance condition is satisfied to within tolerance
+aggCont = pPop.*M;
+assert(max(max(abs(aggCont-aggCont'))) < 1e-12);
 
