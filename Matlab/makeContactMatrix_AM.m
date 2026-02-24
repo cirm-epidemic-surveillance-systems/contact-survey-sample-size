@@ -44,8 +44,8 @@ M1 = C./den;
 M1(:, 1) = M1(:, 1) * v(1);
 
 % For each subsequent column (from the main diagonal down), multiply by [v(x) - int_0^x M(x',x)*dx']
-for iCol = 2:nBins
-    M1(iCol:end, iCol) = M1(iCol:end, iCol) * (v(iCol) - sum(M1(iCol, 1:iCol-1)));
+for jCol = 2:nBins
+    M1(jCol:end, jCol) = M1(jCol:end, jCol) * (v(jCol) - sum(M1(jCol, 1:jCol-1)));
 end
 
 % Fill the upper triangle of the matrix by transposing the lower triangle
