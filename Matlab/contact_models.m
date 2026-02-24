@@ -82,7 +82,7 @@ for ia = 1:na
         b = b_arr(ib);
             
         % Make contract matrix according to assortativity model
-        M_AM = makeContactMatrix_AM(v, b);
+        M_AM = makeContactMatrix_AM(v, pPop, b);
 
         % Linear combination of proportionate and assortative matrices
         M = (1-eps)*M_PM + eps * M_AM;
@@ -95,7 +95,7 @@ for ia = 1:na
 
 
         % Make assortative contact matrix using Tom's method
-        T_AM = makeContactMatrix_AM_Tom(v, b, TOL, relFact);
+        T_AM = makeContactMatrix_AM_Tom(v, pPop, b, TOL, relFact);
 
         % Linear combination of proportionate and assortative matrices
         T = (1-eps)*M_PM + eps*T_AM;
@@ -174,13 +174,13 @@ for ia = 1:na
         b = b_arr(ib);
             
         % Make contract matrix according to assortativity model
-        M_AM = makeContactMatrix_AM(v, b);
+        M_AM = makeContactMatrix_AM(v, pPop, b);
 
         % Calculate dominant eigenvalue
         domEig2(ia, ib) = eigs(M_AM, 1);
 
         % Use Tom's method to make contract matrix according to assortativity model
-        T = makeContactMatrix_AM_Tom(v, b, TOL, relFact);
+        T = makeContactMatrix_AM_Tom(v, pPop, b, TOL, relFact);
 
         % Calculate dominant eigenvalue
         domEig2_Tom(ia, ib) = eigs(T, 1);

@@ -1,4 +1,4 @@
-function M = makeContactMatrix_AM_Tom(v, b, TOL, relFact)
+function M = makeContactMatrix_AM_Tom(v, pPop, b, TOL, relFact)
 
 % Function to use Tom's method to make an assortative mixing contact matrix from a specified
 % distribution of activity levels (in discrete bins) and assortativity
@@ -8,6 +8,8 @@ function M = makeContactMatrix_AM_Tom(v, b, TOL, relFact)
 %
 % INPUTS: v - 1 n x vector of monotonically increaing activity levels in
 % each bin
+%         pPop - 1 n x vector containing the proportion of the population in each
+% activity level bin
 %         b - non-negative scalar parameter for the assortativity kernel
 %         (larger b means stronger assortativity and b=0 should reduce to
 %         proportionate mixing)
@@ -39,10 +41,10 @@ w = ones(size(v));
 convFlag = false;
 while ~convFlag
     wSav = w;
-    w = (1-relFact)*w + relFact * 1/dx * v./(gk*w')';
+    w = (1-relFact)*w + relFact * v./(gk*(pPop.*w)')';
     convFlag = norm(w-wSav, inf)/norm(wSav, inf) < TOL;
 end
-M = dx* w.*w'.*gk;
+M = pPop'.*w.*w'.*gk;
 
 % Check matrix is symmetric to within tolerance
 assert(max(max(abs(M-M'))) < 1e-12);

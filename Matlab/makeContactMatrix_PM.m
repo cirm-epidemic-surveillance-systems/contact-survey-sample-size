@@ -7,7 +7,7 @@ function M = makeContactMatrix_PM(v, pPop)
 %
 % INPUTS: v - 1 x n vector of monotonically increaing activity levels in
 % each bin
-%         pOpo - 1 n x vector containing the proportion of the population in each
+%         pPop - 1 n x vector containing the proportion of the population in each
 % activity level bin
 %
 % OUTPUTS: M - n x n contact matrix whose (i,j) element is the average
