@@ -24,11 +24,9 @@ nBins = length(v);
 % Ensure pPop is normalised
 pPop = pPop/sum(pPop);
 
-% dx is the spacing between activity level quantiles
-dx = 1/nBins;
-
-% Set up grid of activity level quantiles (at bin midpoints)
-x = dx/2:dx:(1-dx/2);
+% Grid of activity level quantiles
+c = [0, cumsum(pPop)];
+x = 0.5*(c(1:end-1)+c(2:end));
 
 % Define matrices of x and y values for calculating M(x,y)
 [X, Y] = meshgrid(x, x);

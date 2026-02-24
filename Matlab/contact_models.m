@@ -34,16 +34,15 @@ nb = length(b_arr);
 TOL = 1e-10;
 relFact = 0.5;
 
-% Create a grid of nBins x values placed at the midpoint of each activity level bin
-dx = 1/nBins;
-x = dx/2:dx:(1-dx/2);
-nx = length(x);
-
 % Make a vector containing the proportion of the population in each
 % activity level bin
-pPop = dx*ones(1, nBins);
+pPop = (1/nBins)*ones(1, nBins);
 %pPop = linspace(10, 1, nBins); pPop = pPop/sum(pPop);
 %pPop = [10*ones(1, 10), ones(1, nBins-10)]; pPop = pPop/sum(pPop);
+
+% Grid of activity level quantiles (at bin midpoints)
+c = [0, cumsum(pPop)];
+x = 0.5*(c(1:end-1)+c(2:end));
 
 % Calculate v as the inverse CDF of the log normal activity level distribution
 v = logninv(x, 0, Sigma);
@@ -126,23 +125,23 @@ for ia = 1:na
             % Plot contact matrix
             figure(1);
             nexttile;
-            imagesc(x, x, M);
+            imagesc(1:nBins, 1:nBins, M);
             title(sprintf('eps = %.1f, b = %.1f, lambda = %.2f', eps, b, domEig(ia, ib) ))         
             h = gca;
             h.YDir = 'normal';
             colorbar;
-            xlabel('activity level quantile of individual (x)')
-            ylabel('activity level quantile of contact (y)')
+            xlabel('activity level bin of individual (x)')
+            ylabel('activity level bin of contact (y)')
 
             figure(2);
             nexttile;
-            imagesc(x, x, T);
+            imagesc(1:nBins, 1:nBins, T);
             title(sprintf('eps = %.1f, b = %.1f, lambda = %.2f', eps, b, domEig_Tom(ia, ib) ))         
             h = gca;
             h.YDir = 'normal';
             colorbar;
-            xlabel('activity level quantile of individual (x)')
-            ylabel('activity level quantile of contact (y)')
+            xlabel('activity level bin of individual (x)')
+            ylabel('activity level bin of contact (y)')
 
 
             % Plot activity level distribution 
@@ -154,7 +153,7 @@ for ia = 1:na
             grid on
             xlabel('activity level quantile')
             ylabel('total contact rate')
-            legend('PM', 'AM', 'AM(Tom)', 'log-norm dist', 'location', 'northwest')
+            legend('PM', 'AM', 'AM(Tom)', 'target', 'location', 'northwest')
             title(sprintf('eps = %.1f, b = %.1f', eps, b))
         end
     end
