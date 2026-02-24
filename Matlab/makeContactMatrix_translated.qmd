@@ -1,0 +1,219 @@
+---
+title: "makeContactMatrix - R Translation"
+format: html
+editor: visual
+---
+
+# Constructing an assortative contact matrix
+
+This document translates the MATLAB functions `calcKernel.m` and `makeContactMatrix.m` into R. The function constructs a contact matrix $M(x, y)$ using an activity level distribution $v$ and an assortativity kernel parameterised by $b$, where $x$ and $y$ represent the quantiles of the activity level distribution.
+
+This was generated with the following prompt:
+
+"Locate the Matlab folder; translate makeContactMatrix.m into R using the style of coding in the R folder. put the translated code into makeContactMatrix_translated.qmd in the Matlab folder."
+
+Claude Code using Sonnet 4.6 was employed as the underlying model.
+
+## Helper function: Gaussian assortativity kernel
+
+The kernel $g(z) = e^{-bz^2}$ controls how sharply mixing is concentrated around individuals with similar activity levels. As $b \to 0$ the kernel becomes flat (approaching proportionate mixing); as $b \to \infty$ mixing becomes fully assortative.
+
+```{r}
+calc_kernel <- function(z, b) {
+  # Evaluate the kernel g(z) for the assortativity model with parameter b
+  exp(-b * z^2)
+}
+```
+
+## Main function: assortative contact matrix
+
+The contact matrix $M(x, y)$ is built iteratively from the lowest-activity column outwards. For each activity quantile $x$ (column), the entries for $y \geq x$ are set proportional to $v(y)\, g(y - x)$, and then scaled so that the column sum equals $v(x) - \int_0^x M(x', x)\, dx'$ — the remaining contact budget after subtracting contacts already allocated to lower-activity columns. The upper triangle is then filled by symmetry.
+
+```{r}
+make_assortative_contact_matrix <- function(x_mat, y_mat, v, b) {
+  # Make a contact matrix using activity level distribution v and
+  # assortativity kernel parameter b. x_mat and y_mat are square matrices
+  # providing a grid of quantile values (from meshgrid) that define the
+  # activity level bins. Each row of x_mat holds the x quantile values;
+  # each column of y_mat holds the y quantile values.
+
+  # Number of bins
+  n_bins <- nrow(x_mat)
+
+  # Bin width (records the discretisation step; not used directly in
+  # matrix construction, but preserved from the MATLAB original)
+  dx <- x_mat[1, 2] - x_mat[1, 1]
+
+  # Calculate the kernel as a function of y - x
+  gk <- calc_kernel(y_mat - x_mat, b)
+
+  # Calculate the product v(y) * g(y - x).
+  # In R, multiplying a matrix by a vector recycles the vector column-by-
+  # column, so v * gk gives element [i, j] = v[i] * gk[i, j], equivalent
+  # to v' .* gk in MATLAB (where v is a row vector)
+  C <- v * gk
+
+  # Calculate the denominator: column sums of the lower triangle of C,
+  # representing int_x^1 [v(y) * g(y - x)] dy for each x
+  C_lower <- C
+  C_lower[upper.tri(C_lower)] <- 0
+  den <- colSums(C_lower)
+
+  # Calculate M1 = v(y)*g(y-x) / int_x^1 [v(y)*g(y-x) dy].
+  # sweep divides each column j of C by den[j]
+  M1 <- sweep(C, 2, den, "/")
+
+  # For the first column, scale by v(x) — the full contact budget at x = x_1
+  M1[, 1] <- M1[, 1] * v[1]
+
+  # For each subsequent column, scale the entries from the diagonal downwards
+  # by [v(x) - int_0^x M(x', x) dx'], i.e. the remaining contact budget
+  for (i_col in 2:n_bins) {
+    M1[i_col:n_bins, i_col] <- M1[i_col:n_bins, i_col] *
+      (v[i_col] - sum(M1[i_col, 1:(i_col - 1)]))
+  }
+
+  # Fill the upper triangle of the matrix by transposing the lower triangle,
+  # making M symmetric
+  M_lower <- M1
+  M_lower[upper.tri(M_lower)] <- 0
+
+  M_strict_lower <- M1
+  M_strict_lower[!lower.tri(M_strict_lower)] <- 0
+
+  M <- M_lower + t(M_strict_lower)
+
+  # Check matrix is symmetric to within tolerance
+  stopifnot(max(abs(M - t(M))) < 1e-12)
+
+  M
+}
+```
+
+## Demonstration
+
+```{r}
+#| message: false
+#| warning: false
+source("R/packages.R")
+```
+
+Set up the discretisation grid, matching the MATLAB setup in `contact_models.m`.
+
+```{r}
+# Number of bins
+n_bins <- 100
+
+# Activity level standard deviation (log scale)
+sigma <- 0.4
+
+# Assortativity kernel parameter
+b <- 10
+
+# Grid of midpoints for each bin
+dx <- 1 / n_bins
+x <- seq(dx / 2, 1 - dx / 2, by = dx)
+
+# Activity level distribution: inverse CDF of log-normal at each quantile
+# (equivalent to MATLAB's logninv(x, 0, sigma))
+v <- qlnorm(x, meanlog = 0, sdlog = sigma)
+
+# Create meshgrid matrices (equivalent to MATLAB's [X, Y] = meshgrid(x, x)):
+# X[i, j] = x[j] (individual's activity quantile, varies along columns)
+# Y[i, j] = x[i] (contact's activity quantile, varies along rows)
+X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
+Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
+
+# Build the assortative contact matrix
+M <- make_assortative_contact_matrix(X, Y, v, b)
+```
+
+### Visualise the contact matrix
+
+```{r}
+expand_grid(y = x, x_val = x) |>
+  mutate(M_val = as.vector(M)) |>
+  ggplot(
+    aes(
+      x = x_val,
+      y = y,
+      fill = M_val
+    )
+  ) +
+  geom_raster() +
+  scale_fill_viridis_c() +
+  labs(
+    x = "activity level quantile of individual (x)",
+    y = "activity level quantile of contact (y)",
+    fill = "M(x, y)",
+    title = sprintf("Assortative contact matrix (sigma = %.1f, b = %.1f)", sigma, b)
+  ) +
+  theme_minimal()
+```
+
+### Check column sums recover the activity level distribution
+
+The matrix is constructed so that column sums equal the activity level distribution `v`. Here we verify this property.
+
+```{r}
+tibble(
+  x = x,
+  v = v,
+  col_sum = colSums(M)
+) |>
+  pivot_longer(
+    cols = c(v, col_sum),
+    names_to = "series",
+    values_to = "value"
+  ) |>
+  ggplot(
+    aes(
+      x = x,
+      y = value,
+      colour = series,
+      linetype = series
+    )
+  ) +
+  geom_line() +
+  labs(
+    x = "activity level quantile",
+    y = "activity level",
+    title = "Column sums of M recover v(x)",
+    colour = NULL,
+    linetype = NULL
+  ) +
+  theme_minimal()
+```
+
+### Vary the assortativity parameter b
+
+```{r}
+b_values <- c(0, 5, 20, 40)
+
+map(
+  b_values,
+  \(b_val) {
+    M_b <- make_assortative_contact_matrix(X, Y, v, b_val)
+    expand_grid(y = x, x_val = x) |>
+      mutate(M_val = as.vector(M_b), b = b_val)
+  }
+) |>
+  list_rbind() |>
+  ggplot(
+    aes(
+      x = x_val,
+      y = y,
+      fill = M_val
+    )
+  ) +
+  geom_raster() +
+  scale_fill_viridis_c() +
+  facet_wrap(~ paste0("b = ", b)) +
+  labs(
+    x = "individual quantile (x)",
+    y = "contact quantile (y)",
+    fill = "M(x, y)",
+    title = "Contact matrix for varying assortativity"
+  ) +
+  theme_minimal()
+```
