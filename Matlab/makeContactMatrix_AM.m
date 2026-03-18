@@ -1,17 +1,17 @@
-function M = makeContactMatrix_AM(v, pPop, b)
+function M = makeContactMatrix_AM(v, pPop, Alpha)
 
 % Function to make an assortative mixing contact matrix from a specified
 % distribution of activity levels (in discrete bins) and assortativity
-% kernel parmaeter b.
+% kernel parmaeter Alpha.
 %
-% USAGE: M = makeContactMatrix_AM(v, b)
+% USAGE: M = makeContactMatrix_AM(v, pPop, Alpha)
 %
 % INPUTS: v - 1 n x vector of monotonically increaing activity levels in
 % each bin
 %         pPop - 1 n x vector containing the proportion of the population in each
 % activity level bin
-%         b - non-negative scalar parameter for the assortativity kernel
-%         (larger b means stronger assortativity and b=0 should reduce to
+%         Alpha - non-negative scalar parameter for the assortativity kernel
+%         (larger Alpha means stronger assortativity and Alpha=0 should reduce to
 %         proportionate mixing)
 %
 % OUTPUTS: M - n x n contact matrix whose (i,j) element is the average
@@ -31,8 +31,11 @@ x = 0.5*(c(1:end-1)+c(2:end));
 % Define matrices of x and y values for calculating M(x,y)
 [X, Y] = meshgrid(x, x);
 
+% Calculate mean activity level
+Ev = sum(pPop.*v);
+
 % Calculate the kernel as a fuction of Y-X
-gk = calcKernel(Y-X, b);
+gk = calcKernel(Y-X, Alpha);
 
 % Calculate the product pi_i * v_i * g_ij
 C = pPop'.*v'.*gk;
@@ -43,12 +46,12 @@ den = sum(tril(C));
 % Calculate matrix pi_i * v_i * g_ij / sum_j^n [pi_k * v_k  * g_kj]
 M1 = C./den;
 
-% For the first column (j=1), multiply by v_j
-M1(:, 1) = M1(:, 1) * v(1);
+% For the first column (j=1), multiply by v_j/Ev
+M1(:, 1) = M1(:, 1) * v(1)/Ev;
 
 % For each subsequent column (from the main diagonal down), multiply by [v_j - sum_1^(j-1) pi_k/pi_j * M_jk ]
 for jCol = 2:nBins
-    M1(jCol:end, jCol) = M1(jCol:end, jCol) * (v(jCol) - sum(pPop(1:jCol-1).*M1(jCol, 1:jCol-1))/pPop(jCol) );
+    M1(jCol:end, jCol) = M1(jCol:end, jCol) * (v(jCol)/Ev - sum(pPop(1:jCol-1).*M1(jCol, 1:jCol-1))/pPop(jCol) );
 end
 
 % Fill the upper triangle of the matrix by transposing the lower triangle
