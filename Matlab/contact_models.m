@@ -10,11 +10,7 @@ close all
 % Std. dev. in the log activity level distribution
 Sigma = 0.4;
 
-% Assortativity constant array of values and indices of values to plot
-eps_arr = 0:0.05:1;
-eps_toPlot = [1, 11, 21];
-
-% Inverse width of assortativity kernel array of values and indices of values to plot
+% Assortativity parameter array of values and indices of values to plot
 Alpha_arr = 0:2:40;
 Alpha_toPlot = [1, 11, 21];
 
@@ -26,8 +22,7 @@ Sigma_arr = 0:0.1:1;
 % Number of bins to discretise and plot the contact matrix
 nBins = 100;
 
-% Number of different values of epsilon and Alpha
-na = length(eps_arr);
+% Number of different values of Alpha
 nb = length(Alpha_arr);
 
 % Convergence tolerance and relaxation factor for Tom's iterative method
@@ -65,98 +60,65 @@ title(sprintf('lambda = %.2f', domEig_PM ))
 h = gca;
 h.YDir = 'normal';
 colorbar;
-xlabel('activity level quantile of individual (x)')
-ylabel('activity level quantile of contact (y)')
+xlabel('activity quantile of individual (x)')
+ylabel('activity quantile of contact (y)')
 
 
 
 
 % Initialise array for dominant eigenvalue
-domEig = zeros(na, nb);
+domEig = zeros(1, nb);
 
 % Set up figure for plotting matrices
 h = figure(1);
-h.Position = [      93         113        1096         837];
-tiledlayout(3, 3, "TileSpacing", "compact")
+h.Position = [       99         633        1294         330];
+tiledlayout(1, 3, "TileSpacing", "compact")
 
 h = figure(2);
-h.Position = [      180          94        1096         837];
-tiledlayout(3, 3, "TileSpacing", "compact")
+h.Position = [   148         479        1294         387];
+tiledlayout(1, 3, "TileSpacing", "compact")
 
-h = figure(3);
-h.Position = [      180          94        1096         837];
-tiledlayout(3, 3, "TileSpacing", "compact")
-
-% Calculate the fully assortative mixing model (epsilon=1) for each value of b
-for ia = 1:na
-    eps = eps_arr(ia);
-    for ib = 1:nb
-        Alpha = Alpha_arr(ib);
-            
-        % Make contract matrix according to assortativity model
-        M_AM = makeContactMatrix_AM(v, pPop, Alpha);
-
-        % Linear combination of proportionate and assortative matrices
-        M = (1-eps)*M_PM + eps * M_AM;
-
-        domEig(ia, ib) = eigs(M, 1);
-
-        % Calculate the aggregate contacts for someone as a function of their
-        % activity class by summing columns of the matrix
-        aggCont = sum(M, 1);
-
-
-        % Make assortative contact matrix using Tom's method
-        T_AM = makeContactMatrix_AM_Tom(v, pPop, Alpha, TOL, relFact);
-
-        % Linear combination of proportionate and assortative matrices
-        T = (1-eps)*M_PM + eps*T_AM;
+for ib = 1:nb
+    Alpha = Alpha_arr(ib);
         
-        % Calculate dominant eigenvalue
-        domEig_Tom(ia, ib) = eigs(T, 1);
-        
-        % Calculate the aggregate contacts for someone as a function of their
-        % activity class by summing columns of the matrix
-        aggCont_Tom = sum(T, 1);
+    % Make assortative contact matrix using Tom's method
+    M = makeContactMatrix_AM_Tom(v, pPop, Alpha, TOL, relFact);
+
+   
+    % Calculate dominant eigenvalue
+    domEig(ib) = eigs(M, 1);
+    
+    % Calculate the aggregate contacts for someone as a function of their
+    % activity class by summing columns of the matrix
+    aggCont = sum(M, 1);
 
 
-        % Make plots (for selected parameter values)
-        if ismember(ia, eps_toPlot) & ismember(ib, Alpha_toPlot)
-            % Plot contact matrix
-            figure(1);
-            nexttile;
-            imagesc(1:nBins, 1:nBins, M);
-            title(sprintf('eps = %.1f, alpha = %.1f, lambda = %.2f', eps, Alpha, domEig(ia, ib) ))         
-            h = gca;
-            h.YDir = 'normal';
-            colorbar;
-            xlabel('activity level bin of individual (x)')
-            ylabel('activity level bin of contact (y)')
-
-            figure(2);
-            nexttile;
-            imagesc(1:nBins, 1:nBins, T);
-            title(sprintf('eps = %.1f, alpha = %.1f, lambda = %.2f', eps, Alpha, domEig_Tom(ia, ib) ))         
-            h = gca;
-            h.YDir = 'normal';
-            colorbar;
-            xlabel('activity level bin of individual (x)')
-            ylabel('activity level bin of contact (y)')
+    % Make plots (for selected parameter values)
+    if ismember(ib, Alpha_toPlot)
+        % Plot contact matrix
+        figure(1);
+        nexttile;
+        imagesc(x, x, M);
+        title("\alpha = " + sprintf('%.1f', Alpha) + ", \lambda = " + sprintf('%.2f', domEig(ib) ) )         
+        h = gca;
+        h.YDir = 'normal';
+        colorbar;
+        xlabel('activity quantile of individual (x)')
+        ylabel('activity quantile of contact (y)')
 
 
-            % Plot activity level distribution 
-            figure(3);
-            nexttile;
-            plot(x, aggCont_PM, x, aggCont, x, aggCont_Tom)
-            hold on 
-            [Ev, ~] = lognstat(0, Sigma);
-            plot(x, v/Ev, '--')
-            grid on
-            xlabel('activity level quantile')
-            ylabel('total contact rate')
-            legend('PM', 'AM', 'AM(Tom)', 'target', 'location', 'northwest')
-            title(sprintf('eps = %.1f, b = %.1f', eps, Alpha))
-        end
+        % Plot activity level distribution 
+        figure(2);
+        nexttile;
+        plot(x, aggCont_PM, x, aggCont)
+        hold on 
+        [Ev, ~] = lognstat(0, Sigma);
+        plot(x, v/Ev, '--')
+        grid on
+        xlabel('activity level quantile')
+        ylabel('total contact rate')
+        legend('PM', 'AM', 'target', 'location', 'northwest')
+        title("\alpha = " + sprintf('%.1f', Alpha))
     end
 end
 sgtitle('check that matrix column sums gives correct activity level dist')
@@ -166,37 +128,27 @@ sgtitle('check that matrix column sums gives correct activity level dist')
 
 
 
-% Now do the same thing with the simplified assortative mixing model (fixing eps=1), varying b and sigma
+% Now varying b and sigma
 na = length(Sigma_arr);
 domEig2 = zeros(na, nb);
-domEig2_Tom = zeros(na, nb);
 
 for ia = 1:na
     Sigma = Sigma_arr(ia);
     if Sigma > 0
         v = logninv(x, 0, Sigma);
     else
-        % If sigma=0, everyone's activity level is 1
+        % If sigma=0, everyone's activity level is the same
         v = ones(size(x));
     end
-
-    % Proportionate mixing model matrix
-    M_PM = makeContactMatrix_PM(v, pPop);
 
     for ib = 1:nb
         Alpha = Alpha_arr(ib);
             
-        % Make contract matrix according to assortativity model
-        M_AM = makeContactMatrix_AM(v, pPop, Alpha);
-
-        % Calculate dominant eigenvalue
-        domEig2(ia, ib) = eigs(M_AM, 1);
-
         % Use Tom's method to make contract matrix according to assortativity model
-        T = makeContactMatrix_AM_Tom(v, pPop, Alpha, TOL, relFact);
+        M = makeContactMatrix_AM_Tom(v, pPop, Alpha, TOL, relFact);
 
         % Calculate dominant eigenvalue
-        domEig2_Tom(ia, ib) = eigs(T, 1);
+        domEig2(ia, ib) = eigs(M, 1);
     end
 end
 
@@ -204,50 +156,12 @@ end
 
 % Contour plot of the dominant eigenvalue against epsilon and b
 h = figure(4);
-h.Position = [  31         105        1194         800];
-tiledlayout(2, 2, "TileSpacing", "compact")
-nexttile;
-contourf(Alpha_arr, eps_arr, domEig);
-h = gca;
-h.YDir = 'normal';
-colorbar;
-clim([1.15 1.65])
-xlabel('\alpha')
-ylabel('\epsilon')
-title('Mike - dominant eigenvalue (relative to \sigma=0)')
-
-
-
 % Plot of the dominant eigenvalue against sigma for various Alpha (every 5th
 % value)
 bPick = 1:5:nb;
-nexttile;
 plot(Sigma_arr, domEig2(:, bPick));
 grid on
 xlabel('\sigma')
-ylabel('dominant eigenvalue')
-l = legend(string(Alpha_arr(bPick)), 'Location', 'northwest');
-title(l, '\alpha');
-
-nexttile;
-contourf(Alpha_arr, eps_arr, domEig_Tom);
-h = gca;
-h.YDir = 'normal';
-colorbar;
-clim([1.15 1.65])
-xlabel('\alpha')
-ylabel('\epsilon')
-title('Tom - dominant eigenvalue (relative to \sigma=0)')
-
-
-
-% Plot of the dominant eigenvalue against sigma for various Alpha (every 5th
-% value)
-bPick = 1:5:nb;
-nexttile;
-plot(Sigma_arr, domEig2_Tom(:, bPick));
-grid on
-xlabel('\sigma')
-ylabel('dominant eigenvalue')
+ylabel('dominant eigenvalue (\lambda)')
 l = legend(string(Alpha_arr(bPick)), 'Location', 'northwest');
 title(l, '\alpha');
