@@ -1,8 +1,9 @@
 function M = makeContactMatrix_AM(v, pPop, Alpha)
 
 % Function to make an assortative mixing contact matrix from a specified
-% distribution of activity levels (in discrete bins) and assortativity
-% kernel parmaeter Alpha.
+% distribution of activity levels (in discrete bins) and assortativity parmaeter Alpha.
+% The activity level distribution (defined by v) will be normalised so that
+% the output matrix has mean activity level 1.
 %
 % USAGE: M = makeContactMatrix_AM(v, pPop, Alpha)
 %

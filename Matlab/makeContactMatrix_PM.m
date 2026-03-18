@@ -2,6 +2,8 @@ function M = makeContactMatrix_PM(v, pPop)
 
 % Function to make a proportionate mixing contact matrix from a specified
 % distribution of activity levels (in discrete bins)
+% The activity level distribution (defined by v) will be normalised so that
+% the output matrix has mean activity level 1.
 %
 % USAGE: M = makeContactMatrix_PM(v)
 %
