@@ -145,3 +145,88 @@ eigenvalue_convergence |>
   xlab("Number of classes") +
   theme_minimal()
 ```
+
+#### Monte Carlo "true" eigenvalue reference
+
+To complement the analytical convergence curves above, we add a reference value computed directly from a large Monte Carlo sample (translation of `Matlab/matrix_bins.m`). We draw N = 10,000 individuals from a lognormal(0, sigma = 1) distribution, then compute the dominant eigenvalue of the full proportionate mixing matrix.
+
+In MATLAB this required forming and diagonalising a 10,000 × 10,000 matrix (~800 MB). In R we exploit the rank-1 structure of the proportionate mixing matrix: for `M = a aᵀ / sum(a)`, the eigenvector is `a` itself and the dominant eigenvalue is `sum(a²) / sum(a)`. This closed form is exact and requires no matrix materialisation.
+
+```{r}
+set.seed(2024)
+N <- 1e4
+
+activity_mc <- rlnorm(N, meanlog = 0, sdlog = sigma)
+
+# "True" MC eigenvalue: closed-form dominant eigenvalue of the rank-1
+# proportionate mixing matrix M = a a^T / sum(a)
+lambda_mc_true <- sum(activity_mc ^ 2) / sum(activity_mc)
+
+# Population-level analytic value (the MC estimate converges to this as N -> Inf)
+lambda_analytic <- exp(1.5 * sigma ^ 2)
+```
+
+Now compute the eigenvalue of binned approximations using quantile bins drawn from the MC sample, matching the MATLAB approach in `matrix_bins.m`.
+
+```{r}
+n_bins_range <- c(2:100, seq(200, 2000, by = 100))
+
+eigenvalue_convergence_mc <- tibble(n_bins = n_bins_range) |>
+  rowwise() |>
+  mutate(
+    eigenvalue = {
+      probs <- seq(0, 1, length.out = n_bins + 1)
+      bin_edges <- quantile(activity_mc, probs = probs)
+      bin_edges[1] <- 0
+
+      bin_means <- vapply(seq_len(n_bins), \(i) {
+        in_bin <- activity_mc > bin_edges[i] & activity_mc <= bin_edges[i + 1]
+        mean(activity_mc[in_bin])
+      }, numeric(1))
+
+      # Dominant eigenvalue of binned proportionate mixing matrix (rank-1 closed form)
+      sum(bin_means ^ 2) / sum(bin_means)
+    }
+  ) |>
+  ungroup()
+```
+
+Plot eigenvalue convergence with both MC and analytic reference lines.
+
+```{r}
+eigenvalue_convergence_mc |>
+  ggplot(
+    aes(x = n_bins, y = eigenvalue)
+  ) +
+  geom_line() +
+  geom_point(size = 0.5) +
+  geom_hline(
+    yintercept = lambda_mc_true,
+    linetype = "dashed",
+    colour = "red"
+  ) +
+  geom_hline(
+    yintercept = lambda_analytic,
+    linetype = "dotted",
+    colour = "blue"
+  ) +
+  annotate(
+    "text", x = 200, y = lambda_mc_true * 1.004,
+    label = '"true" MC value', colour = "red", hjust = 0
+  ) +
+  annotate(
+    "text", x = 200, y = lambda_analytic * 0.997,
+    label = "population analytic", colour = "blue", hjust = 0
+  ) +
+  scale_x_log10() +
+  labs(
+    x = "number of bins",
+    y = "dominant eigenvalue",
+    title = sprintf(
+      "Eigenvalue convergence with MC-quantile binning (proportionate mixing, N = %d)", N
+    )
+  ) +
+  theme_minimal()
+```
+
+The dashed red line is the finite-sample MC reference value; the dotted blue line is the population analytical value `exp(1.5 * sigma²)`. The binned eigenvalue converges to the MC reference, which itself fluctuates around the analytic value due to sampling variance from N = 10,000 draws.

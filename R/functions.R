@@ -771,6 +771,108 @@ get_eigenval <- function(matrix) {
 fast_eigenval <- function(matrix, tol = 0.001, maxiter = 1000) {
   eig <- fastmatrix::power.method(matrix,
                                   maxiter = maxiter,
-                                  tol = tol)  
+                                  tol = tol)
   eig$value
+}
+
+# ---- Continuous kernel-based contact matrix functions ----------------------
+# These implement the continuous-quantile-space models from the MATLAB scripts
+# in the Matlab/ directory. They coexist with the discrete-class generate_matrix()
+# pipeline above; the two approaches are theoretically distinct.
+
+# Gaussian assortativity kernel g(z) = exp(-b * z^2).
+# b controls mixing sharpness: b = 0 gives proportionate mixing, large b gives
+# near-fully-assortative mixing.
+calc_kernel <- function(z, b) {
+  exp(-b * z^2)
+}
+
+# Construct an assortative contact matrix using Mike's iterative column method
+# (translation of Matlab/makeContactMatrix.m).
+#
+# x_mat, y_mat : n_bins x n_bins meshgrid matrices where X[i,j] = x[j]
+#                (individual quantile) and Y[i,j] = x[i] (contact quantile).
+#                Create with:
+#                  X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
+#                  Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
+# v            : numeric vector of activity levels at each quantile (length n_bins)
+# b            : non-negative scalar kernel width parameter
+make_assortative_contact_matrix <- function(x_mat, y_mat, v, b) {
+  n_bins <- nrow(x_mat)
+  dx <- x_mat[1, 2] - x_mat[1, 1]
+
+  gk <- calc_kernel(y_mat - x_mat, b)
+
+  # v(y) * g(y - x): column j gets multiplied by v[j] via R's recycling
+  C <- v * gk
+
+  # Column sums of the lower triangle: int_x^1 [v(y) * g(y-x)] dy for each x
+  C_lower <- C
+  C_lower[upper.tri(C_lower)] <- 0
+  den <- colSums(C_lower)
+
+  # Normalise each column by its lower-triangle sum
+  M1 <- sweep(C, 2, den, "/")
+
+  # Scale first column by v[1] (full contact budget)
+  M1[, 1] <- M1[, 1] * v[1]
+
+  # For each subsequent column, scale by the remaining contact budget
+  for (i_col in 2:n_bins) {
+    M1[i_col:n_bins, i_col] <- M1[i_col:n_bins, i_col] *
+      (v[i_col] - sum(M1[i_col, 1:(i_col - 1)]))
+  }
+
+  # Symmetrise: fill upper triangle from lower
+  M_lower <- M1
+  M_lower[upper.tri(M_lower)] <- 0
+
+  M_strict_lower <- M1
+  M_strict_lower[!lower.tri(M_strict_lower)] <- 0
+
+  M <- M_lower + t(M_strict_lower)
+
+  stopifnot(max(abs(M - t(M))) < 1e-12)
+  M
+}
+
+# Construct an assortative contact matrix using Tom's iterative normalisation
+# method (translation of the inner loop in Matlab/contact_models.m lines 101-117).
+#
+# x        : numeric vector of quantile grid midpoints (length n_bins)
+# v        : numeric vector of activity levels at each quantile (length n_bins)
+# b        : non-negative scalar kernel width parameter
+# dx       : scalar bin width (= 1 / n_bins)
+# rel_fact : relaxation factor for fixed-point iteration (default 0.5)
+# tol      : convergence tolerance on sup-norm of relative update (default 1e-10)
+make_toms_contact_matrix <- function(x, v, b, dx, rel_fact = 0.5, tol = 1e-10) {
+  n_bins <- length(x)
+  X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
+  Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
+  gk <- calc_kernel(Y - X, b)
+
+  w <- rep(1, n_bins)
+  converged <- FALSE
+  while (!converged) {
+    w_saved <- w
+    # gk %*% w returns an n x 1 matrix; as.vector() drops to plain vector
+    w <- (1 - rel_fact) * w + rel_fact / dx * (v / as.vector(gk %*% w))
+    # sup-norm of relative update (MATLAB: norm(w - wSav, Inf) / norm(wSav, Inf))
+    converged <- max(abs(w - w_saved)) / max(abs(w_saved)) < tol
+  }
+
+  # Outer product w * w^T, element-wise multiplied by kernel
+  T_mat <- dx * (w %o% w) * gk
+
+  stopifnot(max(abs(T_mat - t(T_mat))) < 1e-12)
+  T_mat
+}
+
+# Linear blend of a proportionate and an assortative contact matrix.
+# eps = 0 gives pure proportionate mixing; eps = 1 gives pure assortative.
+# Operates on plain numeric matrices (not the long-format tibbles used by
+# generate_matrix()).
+make_blended_matrix <- function(M_PM, M_assort, eps) {
+  stopifnot(identical(dim(M_PM), dim(M_assort)), eps >= 0, eps <= 1)
+  (1 - eps) * M_PM + eps * M_assort
 }
