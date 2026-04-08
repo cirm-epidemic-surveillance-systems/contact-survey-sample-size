@@ -779,92 +779,120 @@ fast_eigenval <- function(matrix, tol = 0.001, maxiter = 1000) {
 # These implement the continuous-quantile-space models from the MATLAB scripts
 # in the Matlab/ directory. They coexist with the discrete-class generate_matrix()
 # pipeline above; the two approaches are theoretically distinct.
+#
+# All four functions accept a p_pop vector of population proportions per bin,
+# supporting non-uniform bin sizes. For uniform quantile bins pass
+# p_pop = rep(1/n_bins, n_bins).
 
-# Gaussian assortativity kernel g(z) = exp(-b * z^2).
-# b controls mixing sharpness: b = 0 gives proportionate mixing, large b gives
-# near-fully-assortative mixing.
-calc_kernel <- function(z, b) {
-  exp(-b * z^2)
+# Gaussian assortativity kernel g(z) = exp(-alpha * z^2).
+# alpha controls mixing sharpness: alpha = 0 gives proportionate mixing, large
+# alpha gives near-fully-assortative mixing.
+# (translation of Matlab/calcKernel.m)
+calc_kernel <- function(z, alpha) {
+  exp(-alpha * z^2)
 }
 
-# Construct an assortative contact matrix using Mike's iterative column method
-# (translation of Matlab/makeContactMatrix.m).
+# Construct a proportionate mixing contact matrix.
+# (translation of Matlab/makeContactMatrix_PM.m)
 #
-# x_mat, y_mat : n_bins x n_bins meshgrid matrices where X[i,j] = x[j]
-#                (individual quantile) and Y[i,j] = x[i] (contact quantile).
-#                Create with:
-#                  X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
-#                  Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
-# v            : numeric vector of activity levels at each quantile (length n_bins)
-# b            : non-negative scalar kernel width parameter
-make_assortative_contact_matrix <- function(x_mat, y_mat, v, b) {
-  n_bins <- nrow(x_mat)
-  dx <- x_mat[1, 2] - x_mat[1, 1]
+# v     : numeric vector of activity levels in each bin (length n_bins)
+# p_pop : numeric vector of population proportions per bin (length n_bins);
+#         will be normalised internally
+make_proportionate_contact_matrix <- function(v, p_pop) {
+  p_pop <- p_pop / sum(p_pop)
+  Ev    <- sum(p_pop * v)
+  outer(p_pop * v, v) / Ev^2
+}
 
-  gk <- calc_kernel(y_mat - x_mat, b)
+# Construct an assortative contact matrix using Mike's iterative column method.
+# (translation of Matlab/makeContactMatrix_AM.m)
+#
+# v     : numeric vector of activity levels in each bin (length n_bins)
+# p_pop : numeric vector of population proportions per bin (length n_bins)
+# alpha : non-negative scalar kernel width parameter
+make_assortative_contact_matrix <- function(v, p_pop, alpha) {
+  n_bins <- length(v)
+  p_pop  <- p_pop / sum(p_pop)
 
-  # v(y) * g(y - x): column j gets multiplied by v[j] via R's recycling
-  C <- v * gk
+  # Quantile midpoints derived from p_pop (matches MATLAB: x = 0.5*(c(1:end-1)+c(2:end)))
+  c_cum <- c(0, cumsum(p_pop))
+  x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
 
-  # Column sums of the lower triangle: int_x^1 [v(y) * g(y-x)] dy for each x
-  C_lower <- C
+  X  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
+  Y  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
+  gk <- calc_kernel(Y - X, alpha)
+  Ev <- sum(p_pop * v)
+
+  # C[i,j] = p_pop[i] * v[i] * gk[i,j]  (row-wise scaling)
+  C <- (p_pop * v) * gk
+
+  # Denominator: column sums of lower triangle of C
+  C_lower        <- C
   C_lower[upper.tri(C_lower)] <- 0
   den <- colSums(C_lower)
 
-  # Normalise each column by its lower-triangle sum
   M1 <- sweep(C, 2, den, "/")
 
-  # Scale first column by v[1] (full contact budget)
-  M1[, 1] <- M1[, 1] * v[1]
+  # First column: scale by v[1]/Ev
+  M1[, 1] <- M1[, 1] * v[1] / Ev
 
-  # For each subsequent column, scale by the remaining contact budget
-  for (i_col in 2:n_bins) {
-    M1[i_col:n_bins, i_col] <- M1[i_col:n_bins, i_col] *
-      (v[i_col] - sum(M1[i_col, 1:(i_col - 1)]))
+  # Subsequent columns: scale by remaining contact budget, accounting for p_pop
+  for (j_col in 2:n_bins) {
+    M1[j_col:n_bins, j_col] <- M1[j_col:n_bins, j_col] *
+      (v[j_col] / Ev - sum(p_pop[1:(j_col - 1)] * M1[j_col, 1:(j_col - 1)]) / p_pop[j_col])
   }
 
-  # Symmetrise: fill upper triangle from lower
+  # Symmetrise: upper triangle = transpose of strict lower triangle, scaled by p_pop[i]/p_pop[j]
   M_lower <- M1
   M_lower[upper.tri(M_lower)] <- 0
 
   M_strict_lower <- M1
-  M_strict_lower[!lower.tri(M_strict_lower)] <- 0
+  M_strict_lower[upper.tri(M_strict_lower, diag = TRUE)] <- 0
 
-  M <- M_lower + t(M_strict_lower)
+  M <- M_lower + t(M_strict_lower) * outer(p_pop, 1 / p_pop)
 
-  stopifnot(max(abs(M - t(M))) < 1e-12)
+  # Detailed balance check: p_pop[j] * M[i,j] must be symmetric
+  agg_cont <- sweep(M, 2, p_pop, "*")
+  stopifnot(max(abs(agg_cont - t(agg_cont))) < 1e-12)
   M
 }
 
-# Construct an assortative contact matrix using Tom's iterative normalisation
-# method (translation of the inner loop in Matlab/contact_models.m lines 101-117).
+# Construct an assortative contact matrix using Tom's iterative normalisation method.
+# (translation of Matlab/makeContactMatrix_AM_Tom.m)
 #
-# x        : numeric vector of quantile grid midpoints (length n_bins)
-# v        : numeric vector of activity levels at each quantile (length n_bins)
-# b        : non-negative scalar kernel width parameter
-# dx       : scalar bin width (= 1 / n_bins)
+# v        : numeric vector of activity levels in each bin (length n_bins)
+# p_pop    : numeric vector of population proportions per bin (length n_bins)
+# alpha    : non-negative scalar kernel width parameter
 # rel_fact : relaxation factor for fixed-point iteration (default 0.5)
 # tol      : convergence tolerance on sup-norm of relative update (default 1e-10)
-make_toms_contact_matrix <- function(x, v, b, dx, rel_fact = 0.5, tol = 1e-10) {
-  n_bins <- length(x)
-  X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
-  Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
-  gk <- calc_kernel(Y - X, b)
+make_toms_contact_matrix <- function(v, p_pop, alpha, rel_fact = 0.5, tol = 1e-10) {
+  n_bins <- length(v)
+  p_pop  <- p_pop / sum(p_pop)
 
-  w <- rep(1, n_bins)
+  # Quantile midpoints derived from p_pop
+  c_cum <- c(0, cumsum(p_pop))
+  x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
+
+  X  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
+  Y  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
+  gk <- calc_kernel(Y - X, alpha)
+  Ev <- sum(p_pop * v)
+
+  w         <- rep(1, n_bins)
   converged <- FALSE
   while (!converged) {
     w_saved <- w
-    # gk %*% w returns an n x 1 matrix; as.vector() drops to plain vector
-    w <- (1 - rel_fact) * w + rel_fact / dx * (v / as.vector(gk %*% w))
-    # sup-norm of relative update (MATLAB: norm(w - wSav, Inf) / norm(wSav, Inf))
+    # gk %*% (p_pop * w) is n x 1; as.vector() drops to plain vector
+    w <- (1 - rel_fact) * w + rel_fact * v / (Ev * as.vector(gk %*% (p_pop * w)))
     converged <- max(abs(w - w_saved)) / max(abs(w_saved)) < tol
   }
 
-  # Outer product w * w^T, element-wise multiplied by kernel
-  T_mat <- dx * (w %o% w) * gk
+  # M[i,j] = p_pop[i] * w[i] * w[j] * gk[i,j]
+  T_mat <- outer(p_pop * w, w) * gk
 
-  stopifnot(max(abs(T_mat - t(T_mat))) < 1e-12)
+  # Detailed balance check
+  agg_cont <- sweep(T_mat, 2, p_pop, "*")
+  stopifnot(max(abs(agg_cont - t(agg_cont))) < 1e-12)
   T_mat
 }
 

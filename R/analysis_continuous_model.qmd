@@ -11,7 +11,7 @@ This document is an R translation of `Matlab/contact_models.m`. It visualises co
 -   **Mike's method** (`make_assortative_contact_matrix`): iterative column-by-column construction.
 -   **Tom's method** (`make_toms_contact_matrix`): iterative kernel normalisation.
 
-Both methods parametrise assortativity via a Gaussian kernel with width parameter `b`. Larger `b` concentrates mixing among individuals with similar activity levels; `b = 0` recovers proportionate mixing. An epsilon parameter blends the assortative matrix with the proportionate mixing baseline.
+Both methods parametrise assortativity via a Gaussian kernel with width parameter `alpha`. Larger `alpha` concentrates mixing among individuals with similar activity levels; `alpha = 0` recovers proportionate mixing. An epsilon parameter blends the assortative matrix with the proportionate mixing baseline.
 
 ```{r}
 #| message: false
@@ -26,58 +26,54 @@ Set up the quantile grid and activity level distribution (mirrors `contact_model
 
 ```{r}
 # Model parameters
-sigma        <- 0.4             # fixed sigma for (eps, b) sweep
+sigma        <- 0.4             # fixed sigma for (eps, alpha) sweep
 eps_arr      <- seq(0, 1, by = 0.05)
-b_arr        <- seq(0, 40, by = 2)
+alpha_arr    <- seq(0, 40, by = 2)
 sigma_arr    <- seq(0, 1, by = 0.1)
 
-# Indices (1-based) of (eps, b) combinations to show in matrix grid plots
-eps_to_plot <- c(1, 11, 21)
-b_to_plot   <- c(1, 11, 21)
+# Indices (1-based) of (eps, alpha) combinations to show in matrix grid plots
+eps_to_plot   <- c(1, 11, 21)
+alpha_to_plot <- c(1, 11, 21)
 
-# Quantile grid
+# Quantile grid (uniform bins)
 n_bins <- 100
-dx     <- 1 / n_bins
-x      <- seq(dx / 2, 1 - dx / 2, by = dx)
+p_pop  <- rep(1 / n_bins, n_bins)  # uniform population proportions
+x      <- {                         # bin midpoints (matches MATLAB x = 0.5*(c(1:end-1)+c(2:end)))
+  c_cum <- c(0, cumsum(p_pop))
+  0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
+}
 
 # Activity level distribution: inverse CDF of lognormal(0, sigma) at each quantile
-v  <- qlnorm(x, meanlog = 0, sdlog = sigma)
-Ev <- dx * sum(v)
+v <- qlnorm(x, meanlog = 0, sdlog = sigma)
 
-# Meshgrid matrices for matrix construction:
-#   X[i, j] = x[j]  (individual's activity quantile, varies along columns)
-#   Y[i, j] = x[i]  (contact's activity quantile, varies along rows)
-X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
-Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
-
-# Proportionate mixing matrix (equivalent to MATLAB: dx * v' .* v / Ev)
-M_PM <- dx * outer(v, v) / Ev
+# Proportionate mixing matrix
+M_PM <- make_proportionate_contact_matrix(v, p_pop)
 ```
 
-## Sweep over (epsilon, b)
+## Sweep over (epsilon, alpha)
 
-Compute the dominant eigenvalue for a grid of (epsilon, b) values using both methods. Run in parallel.
+Compute the dominant eigenvalue for a grid of (epsilon, alpha) values using both methods. Run in parallel.
 
 ```{r}
 plan(multisession, workers = 8)
 
-sweep_eps_b <- expand_grid(
-  eps = eps_arr,
-  b   = b_arr
+sweep_eps_alpha <- expand_grid(
+  eps   = eps_arr,
+  alpha = alpha_arr
 ) |>
   mutate(
     eigenval_mike = furrr::future_map2(
-      eps, b,
-      \(e, bval) {
-        M_assort <- make_assortative_contact_matrix(X, Y, v, bval)
+      eps, alpha,
+      \(e, aval) {
+        M_assort <- make_assortative_contact_matrix(v, p_pop, aval)
         get_eigenval(make_blended_matrix(M_PM, M_assort, e))
       },
       .options = furrr_options(seed = TRUE)
     ),
     eigenval_tom = furrr::future_map2(
-      eps, b,
-      \(e, bval) {
-        T_assort <- make_toms_contact_matrix(x, v, bval, dx)
+      eps, alpha,
+      \(e, aval) {
+        T_assort <- make_toms_contact_matrix(v, p_pop, aval)
         get_eigenval(make_blended_matrix(M_PM, T_assort, e))
       },
       .options = furrr_options(seed = TRUE)
@@ -86,31 +82,28 @@ sweep_eps_b <- expand_grid(
   unnest(c(eigenval_mike, eigenval_tom))
 ```
 
-## Sweep over (sigma, b) with epsilon = 1
+## Sweep over (sigma, alpha) with epsilon = 1
 
 ```{r}
-sweep_sigma_b <- expand_grid(
+sweep_sigma_alpha <- expand_grid(
   sigma_val = sigma_arr,
-  b         = b_arr
+  alpha     = alpha_arr
 ) |>
   mutate(
     eigenval_mike = furrr::future_map2(
-      sigma_val, b,
-      \(s, bval) {
+      sigma_val, alpha,
+      \(s, aval) {
         v_s <- qlnorm(x, meanlog = 0, sdlog = s)
-        # qlnorm with sdlog = 0 returns 1 for all x in (0, 1); no special case needed
-        Ev_s  <- dx * sum(v_s)
-        M_PM_s <- dx * outer(v_s, v_s) / Ev_s
-        M_assort <- make_assortative_contact_matrix(X, Y, v_s, bval)
+        M_assort <- make_assortative_contact_matrix(v_s, p_pop, aval)
         get_eigenval(M_assort)   # eps = 1: pure assortative
       },
       .options = furrr_options(seed = TRUE)
     ),
     eigenval_tom = furrr::future_map2(
-      sigma_val, b,
-      \(s, bval) {
+      sigma_val, alpha,
+      \(s, aval) {
         v_s <- qlnorm(x, meanlog = 0, sdlog = s)
-        T_assort <- make_toms_contact_matrix(x, v_s, bval, dx)
+        T_assort <- make_toms_contact_matrix(v_s, p_pop, aval)
         get_eigenval(T_assort)
       },
       .options = furrr_options(seed = TRUE)
@@ -121,24 +114,24 @@ sweep_sigma_b <- expand_grid(
 
 ## Figure 1 & 2: Contact matrix grids
 
-Visualise the contact matrix for selected (eps, b) combinations (3 × 3 grid). Rebuild matrices for the 9 selected parameter pairs.
+Visualise the contact matrix for selected (eps, alpha) combinations (3 × 3 grid). Rebuild matrices for the 9 selected parameter pairs.
 
 ```{r}
 plot_params <- expand_grid(
-  eps = eps_arr[eps_to_plot],
-  b   = b_arr[b_to_plot]
+  eps   = eps_arr[eps_to_plot],
+  alpha = alpha_arr[alpha_to_plot]
 )
 
 matrix_long_mike <- pmap(
   plot_params,
-  \(eps, b) {
-    M_assort <- make_assortative_contact_matrix(X, Y, v, b)
+  \(eps, alpha) {
+    M_assort <- make_assortative_contact_matrix(v, p_pop, alpha)
     M_blend  <- make_blended_matrix(M_PM, M_assort, eps)
     expand_grid(y_val = x, x_val = x) |>
       mutate(
         M_val = as.vector(M_blend),
         eps   = eps,
-        b     = b
+        alpha = alpha
       )
   }
 ) |>
@@ -150,13 +143,13 @@ matrix_long_mike |>
   scale_fill_viridis_c(trans = "log") +
   facet_grid(
     rows = vars(paste0("eps = ", eps)),
-    cols = vars(paste0("b = ", b))
+    cols = vars(paste0("alpha = ", alpha))
   ) +
   labs(
     x    = "activity level quantile of individual (x)",
     y    = "activity level quantile of contact (y)",
     fill = "M(x, y)",
-    title = "Mike's method: contact matrix for selected (eps, b)"
+    title = "Mike's method: contact matrix for selected (eps, alpha)"
   ) +
   theme_minimal()
 ```
@@ -164,14 +157,14 @@ matrix_long_mike |>
 ```{r}
 matrix_long_tom <- pmap(
   plot_params,
-  \(eps, b) {
-    T_assort <- make_toms_contact_matrix(x, v, b, dx)
+  \(eps, alpha) {
+    T_assort <- make_toms_contact_matrix(v, p_pop, alpha)
     T_blend  <- make_blended_matrix(M_PM, T_assort, eps)
     expand_grid(y_val = x, x_val = x) |>
       mutate(
         M_val = as.vector(T_blend),
         eps   = eps,
-        b     = b
+        alpha = alpha
       )
   }
 ) |>
@@ -183,13 +176,13 @@ matrix_long_tom |>
   scale_fill_viridis_c(trans = "log") +
   facet_grid(
     rows = vars(paste0("eps = ", eps)),
-    cols = vars(paste0("b = ", b))
+    cols = vars(paste0("alpha = ", alpha))
   ) +
   labs(
     x    = "activity level quantile of individual (x)",
     y    = "activity level quantile of contact (y)",
     fill = "M(x, y)",
-    title = "Tom's method: contact matrix for selected (eps, b)"
+    title = "Tom's method: contact matrix for selected (eps, alpha)"
   ) +
   theme_minimal()
 ```
@@ -201,10 +194,10 @@ For each selected (eps, b) combination, compare the column sums of the blended m
 ```{r}
 agg_long <- pmap(
   plot_params,
-  \(eps, b) {
-    M_assort <- make_assortative_contact_matrix(X, Y, v, b)
+  \(eps, alpha) {
+    M_assort <- make_assortative_contact_matrix(v, p_pop, alpha)
     M_blend  <- make_blended_matrix(M_PM, M_assort, eps)
-    T_assort <- make_toms_contact_matrix(x, v, b, dx)
+    T_assort <- make_toms_contact_matrix(v, p_pop, alpha)
     T_blend  <- make_blended_matrix(M_PM, T_assort, eps)
     tibble(
       x       = x,
@@ -213,7 +206,7 @@ agg_long <- pmap(
       Tom     = colSums(T_blend),
       lognorm = v,
       eps     = eps,
-      b       = b
+      alpha   = alpha
     )
   }
 ) |>
@@ -229,7 +222,7 @@ agg_long |>
   geom_line() +
   facet_grid(
     rows = vars(paste0("eps = ", eps)),
-    cols = vars(paste0("b = ", b))
+    cols = vars(paste0("alpha = ", alpha))
   ) +
   labs(
     x      = "activity level quantile",
@@ -243,10 +236,10 @@ agg_long |>
 
 ## Figure 4: Eigenvalue landscapes
 
-### Contour plot: eigenvalue over (b, epsilon)
+### Contour plot: eigenvalue over (alpha, epsilon)
 
 ```{r}
-sweep_eps_b |>
+sweep_eps_alpha |>
   pivot_longer(
     cols      = c(eigenval_mike, eigenval_tom),
     names_to  = "method",
@@ -259,25 +252,25 @@ sweep_eps_b |>
       eigenval_tom  = "Tom's method"
     )
   ) |>
-  ggplot(aes(x = b, y = eps, z = eigenval)) +
+  ggplot(aes(x = alpha, y = eps, z = eigenval)) +
   geom_contour_filled(breaks = seq(1.1, 1.8, by = 0.05)) +
   facet_wrap(~ method) +
   labs(
-    x    = "b (kernel width)",
+    x    = expression(alpha ~ "(kernel width)"),
     y    = expression(epsilon ~ "(assortativity blend)"),
     fill = expression(lambda),
-    title = sprintf("Dominant eigenvalue over (b, epsilon) [sigma = %.1f]", sigma)
+    title = sprintf("Dominant eigenvalue over (alpha, epsilon) [sigma = %.1f]", sigma)
   ) +
   theme_minimal()
 ```
 
-### Eigenvalue vs sigma for selected b values
+### Eigenvalue vs sigma for selected alpha values
 
 ```{r}
-b_pick <- b_arr[seq(1, length(b_arr), by = 5)]
+alpha_pick <- alpha_arr[seq(1, length(alpha_arr), by = 5)]
 
-sweep_sigma_b |>
-  filter(b %in% b_pick) |>
+sweep_sigma_alpha |>
+  filter(alpha %in% alpha_pick) |>
   pivot_longer(
     cols      = c(eigenval_mike, eigenval_tom),
     names_to  = "method",
@@ -294,8 +287,8 @@ sweep_sigma_b |>
     aes(
       x      = sigma_val,
       y      = eigenval,
-      colour = factor(b),
-      group  = factor(b)
+      colour = factor(alpha),
+      group  = factor(alpha)
     )
   ) +
   geom_line() +
@@ -303,8 +296,8 @@ sweep_sigma_b |>
   labs(
     x      = expression(sigma ~ "(activity level SD)"),
     y      = "dominant eigenvalue",
-    colour = "b",
-    title  = "Dominant eigenvalue vs. sigma for selected b values (eps = 1)"
+    colour = expression(alpha),
+    title  = "Dominant eigenvalue vs. sigma for selected alpha values (eps = 1)"
   ) +
   theme_minimal()
 ```
