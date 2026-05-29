@@ -1002,3 +1002,64 @@ make_blended_matrix <- function(M_PM, M_assort, eps) {
   stopifnot(identical(dim(M_PM), dim(M_assort)), eps >= 0, eps <= 1)
   (1 - eps) * M_PM + eps * M_assort
 }
+
+# given an two matrices (e.g. an age-structured matrix and an activity matrix),
+# return a combined matrix tiling the two, with each cell giving the product of
+# the cell values of the two matrices. Attach the combined row/column names
+tile_matrices <- function(a, b) {
+  
+  # get the kronecker product  
+  ab <- kronecker(a, b, FUN = "*")
+  
+  # define the names appropriately
+  a_names <- rownames(a)
+  b_names <- rownames(b)
+  n_a <- length(a_names)
+  n_b <- length(b_names)
+  
+  ab_names <- paste(
+    rep(a_names, each = n_b),
+    rep(b_names, n_a),
+    sep = "-"
+  )
+  
+  rownames(ab) <- ab_names
+  colnames(ab) <- ab_names
+  
+  ab
+}
+
+# return a ggplot visualisation of a contact matrix - like in conmat but
+# agnostic to whether it is age
+autoplot_contact_matrix <- function(contact_matrix, palette = 1) {
+  
+  contact_matrix |>
+    conmat::matrix_to_predictions() |>
+    rename(
+      from = age_group_from,
+      to = age_group_to
+    ) |>
+    ggplot(
+      aes(
+        x = from,
+        y = to,
+        fill = contacts
+      )
+    ) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_distiller(
+      palette = palette,
+      direction = 1, 
+      trans = "sqrt"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text = element_text(
+        size = 6,
+        angle = 45, 
+        hjust = 1
+      )
+    )
+    
+}
