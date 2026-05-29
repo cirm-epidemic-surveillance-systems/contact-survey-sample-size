@@ -1003,7 +1003,59 @@ make_blended_matrix <- function(M_PM, M_assort, eps) {
   (1 - eps) * M_PM + eps * M_assort
 }
 
-# given an two matrices (e.g. an age-structured matrix and an activity matrix),
+# combine the above to make an activity-structured matrix with n_activity_bins
+# classes, heterogeneity parameter sigma, activity-assortativity range parameter
+# alpha, and assortativity parameter epsilon. The 'binning_method' can either be
+# "gausquad" for uneven-sized bins that contain lots of information inrelatively
+# few bins, or "even" for even bin sizes, which make it easier to see the
+# assortativity level.
+make_activity_matrix <- function(n_activity_bins, sigma, alpha, epsilon,
+                                 binning_method = c("gaussquad", "even")) {
+
+  # choose binning function
+  binning_method <- match.arg(binning_method)
+  
+  binner <- switch(binning_method,
+                   gaussquad = gaussquad_classes,
+                   even = quantile2_classes_mean)
+  
+  # make bins
+  activity_bins <- binner(sigma = sigma,
+                          n_classes = n_activity_bins)
+  
+  # fully assortative matrix
+  assortative_activity <- make_toms_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction,
+    alpha = alpha)
+  
+  # fully proportionate matrix
+  proportionate_activity <- make_proportionate_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction)
+  
+  # partially-assortative matrix
+  activity_matrix <- make_blended_matrix(
+    M_PM = proportionate_activity,
+    M_assort = assortative_activity,
+    eps = epsilon)
+  
+  # set names
+  rownames(activity_matrix) <- activity_bins$class
+  colnames(activity_matrix) <- activity_bins$class
+  
+  # add on the activity bins and parameters as attributes
+  attr(activity_matrix, "activity_bins") <- activity_bins
+  attr(activity_matrix, "parameters") <- list(sigma = sigma,
+                                              alpha = alpha,
+                                              epsilon = epsilon)
+  
+  # and return
+  activity_matrix
+  
+}
+
+# given two matrices (e.g. an age-structured matrix and an activity matrix),
 # return a combined matrix tiling the two, with each cell giving the product of
 # the cell values of the two matrices. Attach the combined row/column names
 tile_matrices <- function(a, b) {
@@ -1026,6 +1078,33 @@ tile_matrices <- function(a, b) {
   rownames(ab) <- ab_names
   colnames(ab) <- ab_names
   
+  ab
+}
+
+# is x almost exactly equal to 1 
+almost_one <- function(x, tol = 1e-5) {
+  max(abs(x - 1)) < tol
+}
+
+# given two vectors of population fractions (e.g. for an age-structured matrix
+# and an activity matrix), return a combined vector of population fractions
+# tiling the two, with each element giving the product of the elements values of
+# the two vectors
+tile_fractions <- function(a, b) {
+  
+  if (!almost_one(sum(a))) {
+    stop("population fraction a does not sum to 1")
+  }
+  if (!almost_one(sum(b))) {
+    stop("population fraction b does not sum to 1")
+  }
+  n_a <- length(a)
+  n_b <- length(b)
+  
+  # tile these in the same way as in tile_matrices()
+  a_tiled <- rep(a, each = n_b)
+  b_tiled <- rep(b, n_a)
+  ab <- a_tiled * b_tiled
   ab
 }
 

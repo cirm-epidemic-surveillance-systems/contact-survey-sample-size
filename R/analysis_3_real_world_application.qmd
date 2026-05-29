@@ -332,8 +332,6 @@ Next, we compute the discretisation bins of the continuous activity level distri
 <!--# We do this using Gaussian quadrature, since it enables us to approximate the full activity distribution in relatively few bins: -->
 
 ```{r}
-# activity_bins <- gaussquad_classes(sigma = sigma_fc_twostage,
-#                                    n_classes = n_activity_bins)
 activity_bins <- quantile2_classes_mean(sigma = sigma_fc_twostage,
                                    n_classes = n_activity_bins)
 activity_bins
@@ -414,3 +412,129 @@ age_activity_mat_plot
 ```
 
 Next we recompute these matrices for a predetermined set of 5 year age bins, and a more optimal configuration of activity bins, and investigate the implications for analyses of disease transmission.
+
+Compute the age matrix, and the population fraction in each of these age bins:
+
+```{r}
+age_breaks <- c(seq(0, 75, by = 5), Inf)
+age_contact_pred <- predict_contacts(fc_model_aggregated,
+                                     fc_population,
+                                     age_breaks = age_breaks)
+age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
+pop_total <- sum(fc_population$population)
+pop_terminal <- fc_population |>
+  filter(lower.age.limit >= 75) |>
+  pull(population) |>
+  sum()
+pop_bin <- c(fc_population$population[seq_len(length(age_breaks) - 2)],
+             pop_terminal)
+age_fractions <- pop_bin / pop_total
+```
+
+Activity matrix, with 10 bins and Gaussian quadrature for bin sizes and activity levels
+
+```{r}
+activity_matrix <- make_activity_matrix(n_activity_bins = 10,
+                                        sigma = sigma_fc_twostage,
+                                        alpha = 0.5,
+                                        epsilon = 0.5)
+activity_fractions <- attr(activity_matrix, "activity_bins")$fraction
+```
+
+Combined matrix, and activity_fractions
+
+```{r}
+age_activity_matrix <- tile_matrices(age_matrix, activity_matrix)
+age_activity_fractions <- tile_fractions(age_fractions, activity_fractions)
+```
+
+Compute the R0 of next-generation matrices for the age-only and the age-activity contact matrices, given a per-contact transmission probability (beta) of 0.1.
+
+```{r}
+beta <- 0.1
+R0_age <- get_eigenval(age_matrix * beta)
+R0_age_activity <- get_eigenval(age_activity_matrix * beta)
+
+R0_age
+R0_age_activity
+```
+
+Now see how they differ in final size calculations. Compute the final size for the two models above, and for an age-only contact matrix with R0 scaled up to the same R0 as the age-activity NGM.
+
+```{r}
+# mock up susceptibility and p_susceptibility matrices (all set to 1, since we are starting at a naive population)
+n_age <- length(age_fractions)
+n_age_activity <- length(age_activity_fractions)
+dummy_age <- as.matrix(rep(1, n_age))
+dummy_age_activity <- as.matrix(rep(1, n_age_activity))
+
+# scale the contact matrices, so that when multiplied by age fractions they have an eigenvalue of exactly 1 (an undocumented requirement of final_size)
+age_matrix_scaled <- age_matrix / get_eigenval(age_matrix * age_fractions)
+age_activity_matrix_scaled <- age_activity_matrix / get_eigenval(age_activity_matrix * age_activity_fractions)
+
+# age contact matrix with age R0
+size_age <- final_size(r0 = R0_age,
+                       contact_matrix = age_matrix_scaled,
+                       demography_vector = age_fractions,
+                       susceptibility = dummy_age,
+                       p_susceptibility = dummy_age)
+
+# age contact matrix with age/activity R0
+size_age_scaled <- final_size(R0_age_activity,
+                       contact_matrix = age_matrix_scaled,
+                       demography_vector = age_fractions,
+                       susceptibility = dummy_age,
+                       p_susceptibility = dummy_age)
+
+# age/activity contact matrix with age/activity R0
+size_age_activity <- final_size(R0_age_activity,
+                       contact_matrix = age_activity_matrix_scaled,
+                       demography_vector = age_activity_fractions,
+                       susceptibility = dummy_age_activity,
+                       p_susceptibility = dummy_age_activity)
+```
+
+Collapse the age-activity final sizes down into age groups
+
+```{r}
+size_age_activity_by_age <- size_age_activity |>
+  mutate(
+    demo_grp = str_split_i(demo_grp, "-", 1),
+    ) |>
+  group_by(
+    demo_grp
+  ) |>
+  summarise(
+    p_infected = sum(p_infected * activity_fractions))
+```
+
+Plot these age distributions
+
+```{r}
+plot(p_infected ~ factor(demo_grp),
+     type = "p",
+     pch = 16,
+     data = size_age_activity_by_age,
+     ylim = c(0, 1))
+points(p_infected ~ factor(demo_grp),
+     pch = 16,
+     data = size_age,
+     col = "red")
+points(p_infected ~ factor(demo_grp),
+     pch = 16,
+     data = size_age_scaled,
+     col = "blue")
+```
+
+Compute the overall final size from these bin-specific final sizes
+
+```{r}
+overall_size_age <- sum(size_age$p_infected * age_fractions)
+overall_size_age_scaled <- sum(size_age_scaled$p_infected * age_fractions)
+overall_size_age_activity <- sum(size_age_activity$p_infected * age_activity_fractions)
+overall_size_age
+overall_size_age_scaled
+overall_size_age_activity
+```
+
+Need to
