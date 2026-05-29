@@ -108,20 +108,12 @@ maybe_download_hk_data <- function() {
 # analysis
 process_fc_data_varpart <- function() {
   
-  # download the French Connection data, if needed
-  maybe_download_fc_data()
-  
-  # participant info
-  fc_participants <- read_csv(
-    fc_data_filepath("participant",
-                     "common"))
-  fc_participants_extra <- read_csv(
-    fc_data_filepath("participant",
-                     "extra"))
+  # get the French Connection datasets
+  fc_datasets <- load_fc_datasets()
   
   # get all observed combinations of participant and wave, to pad contacts with
   # 0s
-  fc_participants_observed <- fc_participants_extra |>
+  fc_participants_observed <- fc_datasets$fc_participants_extra |>
     select(part_id,
            wave,
            participant_occupation) |>
@@ -132,26 +124,18 @@ process_fc_data_varpart <- function() {
       studyDay = 1:2
     ) |>
     left_join(
-      fc_participants,
+      fc_datasets$fc_participants,
       by = "part_id"
     ) |>
     select(
       -hh_id
     )
   
-  # contact events
-  fc_contacts <- read_csv(
-    fc_data_filepath("contact",
-                     "common"))
-  fc_contacts_extra <- read_csv(
-    fc_data_filepath("contact",
-                     "extra"))
-  
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay
-  fc_contacts_sry <- fc_contacts |>
+  fc_contacts_sry <- fc_datasets$fc_contacts |>
     # add on wave and day columns
-    left_join(fc_contacts_extra,
+    left_join(fc_datasets$fc_contacts_extra,
               by = "cont_id") |>
     # count contacts per participant/wave/day
     group_by(
@@ -186,23 +170,43 @@ process_fc_data_varpart <- function() {
       part_occupation,
       .after = part_id
     )
+  
 }
 
 # load and process the Hong Kong data (pre-prepared by Leon) for the variance
 # partitioning analysis
 process_hk_data_varpart <- function() {
-  
+
   # download the Hong Kong data if needed
   maybe_download_hk_data()
   
-  hk_data_filepath() |>
-    read_csv() |>
+  hk_data <- hk_data_filepath() |>
+    read_csv(
+      col_types = cols(
+        pid = col_double(),
+        hid = col_double(),
+        age = col_double(),
+        sex = col_character(),
+        n.samples = col_double(),
+        wave = col_character(),
+        reporting.day = col_character(),
+        n.contact.total = col_double(),
+        n.loc.group = col_character(),
+        `n.contact.0-4` = col_double(),
+        `n.contact.5-19` = col_double(),
+        `n.contact.20-39` = col_double(),
+        `n.contact.40-64` = col_double(),
+        `n.contact.65+` = col_double()
+      )
+    )
+  
+  hk_data |>
     select(
-    part_id = pid,
-    part_age = age,
-    part_gender = sex,
-    contacts = n.contact.total
-  ) |> 
+      part_id = pid,
+      part_age = age,
+      part_gender = sex,
+      contacts = n.contact.total
+    ) |> 
     mutate(
       part_id = as_factor(part_id),
       part_age = as_factor(part_age),
@@ -308,31 +312,130 @@ make_barplot <- function(partitioning) {
     theme_minimal()
 }
 
-# load and process the French Connection data for learning the age-structured
-# contct matrix, augmented with additional heterogeneity classes
-process_fc_data_conmat <- function() {
+# load the various French Connection datasets
+load_fc_datasets <- function() {
   
   # download the French Connection data, if needed
   maybe_download_fc_data()
   
   # participant info
   fc_participants <- read_csv(
-    fc_data_filepath("participant",
-                     "common"))
+    fc_data_filepath("participant", "common"),
+    col_types = cols(
+      part_id = col_double(),
+      hh_id = col_character(),
+      part_age = col_double(),
+      part_gender = col_character()
+    )
+  )
+  
+  # extra info on participants
   fc_participants_extra <- read_csv(
-    fc_data_filepath("participant",
-                     "extra"))
+    fc_data_filepath("participant", "extra"),
+    col_types = cols(
+      part_id = col_double(),
+      wave_part_id = col_double(),
+      wave = col_double(),
+      questionnaire.type = col_double(),
+      childRespondentLink = col_double(),
+      childRespondentAge = col_double(),
+      childRespondentGender = col_double(),
+      transportModeWeek1 = col_double(),
+      transportModeWeek2 = col_double(),
+      transportModeWeek3 = col_double(),
+      transportModeWeekEnd1 = col_double(),
+      transportModeWeekEnd2 = col_double(),
+      transportModeWeekEnd3 = col_double(),
+      ZIP = col_double(),
+      participant_education = col_double(),
+      participant_occupation = col_double(),
+      participant_occ_detail = col_double(),
+      enfScolarise = col_double(),
+      enfGardeMaison = col_double(),
+      enfGardeNounou = col_double(),
+      enfNbEnfNounou = col_double(),
+      enfNounouScolarise = col_double(),
+      enfCreche = col_double(),
+      enfNbEnfCreche = col_double(),
+      enfFreqGarderie = col_double(),
+      class_size = col_double(),
+      enfCantine = col_double(),
+      enfCentreAere = col_double(),
+      enfCentreAereEcole = col_double(),
+      enfCentreAereVacance = col_double(),
+      work_contacts = col_double(),
+      more20ContactPro = col_double(),
+      work_contacts_nr = col_double(),
+      AgeContactPro1 = col_double(),
+      AgeContactPro2 = col_double(),
+      AgeContactPro3 = col_double(),
+      AgeContactPro4 = col_double(),
+      AgeContactPro5 = col_double(),
+      NbStudentClassroom = col_double(),
+      studentCantina = col_double(),
+      commonParticip = col_double()
+    )
+  )
+  
+  # contact events
+  fc_contacts <- read_csv(
+    fc_data_filepath("contact", "common"),
+    col_types = cols(
+      part_id = col_double(),
+      cont_id = col_character(),
+      cnt_age_exact = col_double(),
+      cnt_age_est_min = col_double(),
+      cnt_age_est_max = col_double(),
+      cnt_gender = col_character(),
+      cnt_home = col_logical(),
+      cnt_work = col_logical(),
+      cnt_school = col_logical(),
+      cnt_transport = col_logical(),
+      cnt_leisure = col_logical(),
+      cnt_otherplace = col_logical(),
+      frequency_multi = col_double(),
+      phys_contact = col_double(),
+      duration_multi = col_double()
+    )
+  )
+  
+  # extr info on contact events
+  fc_contacts_extra <- read_csv(
+    fc_data_filepath("contact", "extra"),
+    col_types = cols(
+      cont_id = col_character(),
+      wave = col_double(),
+      studyDay = col_double()
+    )
+  )  
+  
+  # return these as a list
+  list(
+    fc_participants = fc_participants,
+    fc_participants_extra = fc_participants_extra,
+    fc_contacts = fc_contacts,
+    fc_contacts_extra = fc_contacts_extra
+  )
+  
+}
+
+# load and process the French Connection data for learning the age-structured
+# contct matrix, augmented with additional heterogeneity classes
+process_fc_data_conmat <- function() {
+  
+  # get the French Connection datasets
+  fc_datasets <- load_fc_datasets()
   
   # get all observed combinations of participant and wave, to pad contacts with
   # 0s
-  fc_participants_observed <- fc_participants_extra |>
+  fc_participants_observed <- fc_datasets$fc_participants_extra |>
     select(part_id,
            wave) |>
     expand_grid(
       studyDay = 1:2
     ) |>
     left_join(
-      fc_participants,
+      fc_datasets$fc_participants,
       by = "part_id"
     ) |>
     select(
@@ -340,17 +443,9 @@ process_fc_data_conmat <- function() {
       -part_gender
     )
   
-  # contact events
-  fc_contacts <- read_csv(
-    fc_data_filepath("contact",
-                     "common"))
-  fc_contacts_extra <- read_csv(
-    fc_data_filepath("contact",
-                     "extra"))  
-  
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay, per contact age
-  fc_contacts_sry <- fc_contacts |>
+  fc_contacts_sry <- fc_datasets$fc_contacts |>
     # deal with missing and interval contact ages but imputing from a uniform
     # distribution (in a vectorised way, for marginal computational efficiency
     # gain)
@@ -372,8 +467,10 @@ process_fc_data_conmat <- function() {
       .after = everything()
     ) |>
     # add on wave and day columns
-    left_join(fc_contacts_extra,
-              by = "cont_id") |>
+    left_join(
+      fc_datasets$fc_contacts_extra,
+      by = "cont_id"
+    ) |>
     # count contacts per participant/wave/day
     group_by(
       part_id,
@@ -393,7 +490,7 @@ process_fc_data_conmat <- function() {
     by = 1)
   
   fc_contacts_complete <- fc_contacts_sry |>  
-    complete(
+    tidyr::complete(
       # only the participant/wave/studyDay combinations in the data
       nesting(part_id, wave, studyDay),
       # but for all possible ages
@@ -419,6 +516,7 @@ process_fc_data_conmat <- function() {
       part_age,
       .before = cont_age
     )
+  
 }
 
 # supporting function for quantizing
@@ -903,4 +1001,144 @@ make_toms_contact_matrix <- function(v, p_pop, alpha, rel_fact = 0.5, tol = 1e-1
 make_blended_matrix <- function(M_PM, M_assort, eps) {
   stopifnot(identical(dim(M_PM), dim(M_assort)), eps >= 0, eps <= 1)
   (1 - eps) * M_PM + eps * M_assort
+}
+
+# combine the above to make an activity-structured matrix with n_activity_bins
+# classes, heterogeneity parameter sigma, activity-assortativity range parameter
+# alpha, and assortativity parameter epsilon. The 'binning_method' can either be
+# "gausquad" for uneven-sized bins that contain lots of information inrelatively
+# few bins, or "even" for even bin sizes, which make it easier to see the
+# assortativity level.
+make_activity_matrix <- function(n_activity_bins, sigma, alpha, epsilon,
+                                 binning_method = c("gaussquad", "even")) {
+
+  # choose binning function
+  binning_method <- match.arg(binning_method)
+  
+  binner <- switch(binning_method,
+                   gaussquad = gaussquad_classes,
+                   even = quantile2_classes_mean)
+  
+  # make bins
+  activity_bins <- binner(sigma = sigma,
+                          n_classes = n_activity_bins)
+  
+  # fully assortative matrix
+  assortative_activity <- make_toms_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction,
+    alpha = alpha)
+  
+  # fully proportionate matrix
+  proportionate_activity <- make_proportionate_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction)
+  
+  # partially-assortative matrix
+  activity_matrix <- make_blended_matrix(
+    M_PM = proportionate_activity,
+    M_assort = assortative_activity,
+    eps = epsilon)
+  
+  # set names
+  rownames(activity_matrix) <- activity_bins$class
+  colnames(activity_matrix) <- activity_bins$class
+  
+  # add on the activity bins and parameters as attributes
+  attr(activity_matrix, "activity_bins") <- activity_bins
+  attr(activity_matrix, "parameters") <- list(sigma = sigma,
+                                              alpha = alpha,
+                                              epsilon = epsilon)
+  
+  # and return
+  activity_matrix
+  
+}
+
+# given two matrices (e.g. an age-structured matrix and an activity matrix),
+# return a combined matrix tiling the two, with each cell giving the product of
+# the cell values of the two matrices. Attach the combined row/column names
+tile_matrices <- function(a, b) {
+  
+  # get the kronecker product  
+  ab <- kronecker(a, b, FUN = "*")
+  
+  # define the names appropriately
+  a_names <- rownames(a)
+  b_names <- rownames(b)
+  n_a <- length(a_names)
+  n_b <- length(b_names)
+  
+  ab_names <- paste(
+    rep(a_names, each = n_b),
+    rep(b_names, n_a),
+    sep = "-"
+  )
+  
+  rownames(ab) <- ab_names
+  colnames(ab) <- ab_names
+  
+  ab
+}
+
+# is x almost exactly equal to 1 
+almost_one <- function(x, tol = 1e-5) {
+  max(abs(x - 1)) < tol
+}
+
+# given two vectors of population fractions (e.g. for an age-structured matrix
+# and an activity matrix), return a combined vector of population fractions
+# tiling the two, with each element giving the product of the elements values of
+# the two vectors
+tile_fractions <- function(a, b) {
+  
+  if (!almost_one(sum(a))) {
+    stop("population fraction a does not sum to 1")
+  }
+  if (!almost_one(sum(b))) {
+    stop("population fraction b does not sum to 1")
+  }
+  n_a <- length(a)
+  n_b <- length(b)
+  
+  # tile these in the same way as in tile_matrices()
+  a_tiled <- rep(a, each = n_b)
+  b_tiled <- rep(b, n_a)
+  ab <- a_tiled * b_tiled
+  ab
+}
+
+# return a ggplot visualisation of a contact matrix - like in conmat but
+# agnostic to whether it is age
+autoplot_contact_matrix <- function(contact_matrix, palette = 1) {
+  
+  contact_matrix |>
+    conmat::matrix_to_predictions() |>
+    rename(
+      from = age_group_from,
+      to = age_group_to
+    ) |>
+    ggplot(
+      aes(
+        x = from,
+        y = to,
+        fill = contacts
+      )
+    ) +
+    geom_tile() +
+    coord_fixed() +
+    scale_fill_distiller(
+      palette = palette,
+      direction = 1, 
+      trans = "sqrt"
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text = element_text(
+        size = 6,
+        angle = 45, 
+        hjust = 1
+      )
+    )
+    
 }
