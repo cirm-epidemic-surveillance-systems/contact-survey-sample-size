@@ -246,3 +246,22 @@ within_frac # 58%
 part_frac # 33%
 age_frac # 9%
 ```
+
+Extract the sigma for these
+```{r}
+fc_sigma <- fc_model_lmer_age |>
+    summary() |>
+    extracting("varcor") |>
+    as_tibble() |>
+    filter(grp == "part_id") |>
+  select(sdcor)
+hk_sigma <- hk_model_lmer_age |>
+    summary() |>
+    extracting("varcor") |>
+    as_tibble() |>
+    filter(grp == "part_id") |>
+  select(sdcor)
+
+fc_sigma
+hk_sigma
+```

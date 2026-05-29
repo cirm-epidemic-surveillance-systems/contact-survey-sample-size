@@ -95,7 +95,7 @@ download_hk_data <- function() {
 
 # check whether the Hong Kong data has been downloaded, and if not, download it
 maybe_download_hk_data <- function() {
-  files_exist <- vapply(hk_data_filepaths(),
+  files_exist <- vapply(hk_data_filepath(),
                         file.exists,
                         FUN.VALUE = TRUE)
   if (!all(files_exist)) {

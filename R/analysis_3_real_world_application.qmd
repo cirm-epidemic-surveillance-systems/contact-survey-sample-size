@@ -31,9 +31,8 @@ source("R/packages.R")
 source("R/functions.R")
 ```
 
-
-
 Load FC data with the contact ages, and rename things to those expected by conmat
+
 ```{r}
 fc_contact_data <- process_fc_data_conmat() |>
   rename(age_from = part_age,
@@ -42,7 +41,9 @@ fc_contact_data <- process_fc_data_conmat() |>
     setting = "all"
   )
 ```
+
 aggregate observations across all participants (this won't work for our social activity version, but doing this for now to check conmat analysis is working on these data)
+
 ```{r}
 fc_contact_data_summarised <- fc_contact_data |>
   group_by(
@@ -56,8 +57,8 @@ fc_contact_data_summarised <- fc_contact_data |>
   )
 ```
 
-
 get population data for France in 2010
+
 ```{r}
 fc_population <- age_population(
   data = socialmixr::wpp_age(),
@@ -70,6 +71,7 @@ fc_population <- age_population(
 ```
 
 run conmat on this and return the age-structured matrices
+
 ```{r}
 fc_model_aggregated <- fit_single_contact_model(
   contact_data = fc_contact_data_summarised,
@@ -86,7 +88,8 @@ autoplot(age_matrix)
 ```
 
 modify the fitting function to add a random effect (create a conmat branch)
-```
+
+```         
 fc_contact_data_participant <- fc_contact_data |>
   select(
     age_from,
@@ -105,6 +108,7 @@ use the modified version of conmat to add this term to the model
 because we can't aggregate over participants, we need to aggregate the ages to reduce the dataset size and run time.
 
 aggregate to the midpoints of the discrete age classes we will be predicting to later
+
 ```{r}
 max_age <- max(fc_contact_data_participant$age_from,
                fc_contact_data_participant$age_to,
@@ -187,9 +191,7 @@ fc_contact_data_participant |>
   )
 ```
 
-
 fit a random effects poisson regression, with these (logged) as an offset
-
 
 ```{r}
 # # run conmat on this and return the age-structured matrix
@@ -219,6 +221,7 @@ fit a random effects poisson regression, with these (logged) as an offset
 extract the standard deviation of the participant random effect
 
 like this? Need to find the right components with grepl on part_id
+
 ```{r}
 sd(fc_model_participant$coefficients[-1])
 
@@ -228,6 +231,7 @@ fc_model_participant$smooth
 create the discretised social activity matrix add row and column names
 
 combine the two matrices together (kronecker product)
+
 ```{r}
 contact_matrix <- kronecker(social_activity_matrix,
                             age_matrix_participant,
