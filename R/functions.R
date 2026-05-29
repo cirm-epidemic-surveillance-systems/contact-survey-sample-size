@@ -108,20 +108,12 @@ maybe_download_hk_data <- function() {
 # analysis
 process_fc_data_varpart <- function() {
   
-  # download the French Connection data, if needed
-  maybe_download_fc_data()
-  
-  # participant info
-  fc_participants <- read_csv(
-    fc_data_filepath("participant",
-                     "common"))
-  fc_participants_extra <- read_csv(
-    fc_data_filepath("participant",
-                     "extra"))
+  # get the French Connection datasets
+  fc_datasets <- load_fc_datasets()
   
   # get all observed combinations of participant and wave, to pad contacts with
   # 0s
-  fc_participants_observed <- fc_participants_extra |>
+  fc_participants_observed <- fc_datasets$fc_participants_extra |>
     select(part_id,
            wave,
            participant_occupation) |>
@@ -132,26 +124,18 @@ process_fc_data_varpart <- function() {
       studyDay = 1:2
     ) |>
     left_join(
-      fc_participants,
+      fc_datasets$fc_participants,
       by = "part_id"
     ) |>
     select(
       -hh_id
     )
   
-  # contact events
-  fc_contacts <- read_csv(
-    fc_data_filepath("contact",
-                     "common"))
-  fc_contacts_extra <- read_csv(
-    fc_data_filepath("contact",
-                     "extra"))
-  
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay
-  fc_contacts_sry <- fc_contacts |>
+  fc_contacts_sry <- fc_datasets$fc_contacts |>
     # add on wave and day columns
-    left_join(fc_contacts_extra,
+    left_join(fc_datasets$fc_contacts_extra,
               by = "cont_id") |>
     # count contacts per participant/wave/day
     group_by(
@@ -186,23 +170,43 @@ process_fc_data_varpart <- function() {
       part_occupation,
       .after = part_id
     )
+  
 }
 
 # load and process the Hong Kong data (pre-prepared by Leon) for the variance
 # partitioning analysis
 process_hk_data_varpart <- function() {
-  
+
   # download the Hong Kong data if needed
   maybe_download_hk_data()
   
-  hk_data_filepath() |>
-    read_csv() |>
+  hk_data <- hk_data_filepath() |>
+    read_csv(
+      col_types = cols(
+        pid = col_double(),
+        hid = col_double(),
+        age = col_double(),
+        sex = col_character(),
+        n.samples = col_double(),
+        wave = col_character(),
+        reporting.day = col_character(),
+        n.contact.total = col_double(),
+        n.loc.group = col_character(),
+        `n.contact.0-4` = col_double(),
+        `n.contact.5-19` = col_double(),
+        `n.contact.20-39` = col_double(),
+        `n.contact.40-64` = col_double(),
+        `n.contact.65+` = col_double()
+      )
+    )
+  
+  hk_data |>
     select(
-    part_id = pid,
-    part_age = age,
-    part_gender = sex,
-    contacts = n.contact.total
-  ) |> 
+      part_id = pid,
+      part_age = age,
+      part_gender = sex,
+      contacts = n.contact.total
+    ) |> 
     mutate(
       part_id = as_factor(part_id),
       part_age = as_factor(part_age),
@@ -308,9 +312,8 @@ make_barplot <- function(partitioning) {
     theme_minimal()
 }
 
-# load and process the French Connection data for learning the age-structured
-# contct matrix, augmented with additional heterogeneity classes
-process_fc_data_conmat <- function() {
+# load the various French Connection datasets
+load_fc_datasets <- function() {
   
   # download the French Connection data, if needed
   maybe_download_fc_data()
@@ -326,6 +329,7 @@ process_fc_data_conmat <- function() {
     )
   )
   
+  # extra info on participants
   fc_participants_extra <- read_csv(
     fc_data_filepath("participant", "extra"),
     col_types = cols(
@@ -373,23 +377,6 @@ process_fc_data_conmat <- function() {
     )
   )
   
-  # get all observed combinations of participant and wave, to pad contacts with
-  # 0s
-  fc_participants_observed <- fc_participants_extra |>
-    select(part_id,
-           wave) |>
-    expand_grid(
-      studyDay = 1:2
-    ) |>
-    left_join(
-      fc_participants,
-      by = "part_id"
-    ) |>
-    select(
-      -hh_id,
-      -part_gender
-    )
-  
   # contact events
   fc_contacts <- read_csv(
     fc_data_filepath("contact", "common"),
@@ -412,6 +399,7 @@ process_fc_data_conmat <- function() {
     )
   )
   
+  # extr info on contact events
   fc_contacts_extra <- read_csv(
     fc_data_filepath("contact", "extra"),
     col_types = cols(
@@ -421,9 +409,43 @@ process_fc_data_conmat <- function() {
     )
   )  
   
+  # return these as a list
+  list(
+    fc_participants = fc_participants,
+    fc_participants_extra = fc_participants_extra,
+    fc_contacts = fc_contacts,
+    fc_contacts_extra = fc_contacts_extra
+  )
+  
+}
+
+# load and process the French Connection data for learning the age-structured
+# contct matrix, augmented with additional heterogeneity classes
+process_fc_data_conmat <- function() {
+  
+  # get the French Connection datasets
+  fc_datasets <- load_fc_datasets()
+  
+  # get all observed combinations of participant and wave, to pad contacts with
+  # 0s
+  fc_participants_observed <- fc_datasets$fc_participants_extra |>
+    select(part_id,
+           wave) |>
+    expand_grid(
+      studyDay = 1:2
+    ) |>
+    left_join(
+      fc_datasets$fc_participants,
+      by = "part_id"
+    ) |>
+    select(
+      -hh_id,
+      -part_gender
+    )
+  
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay, per contact age
-  fc_contacts_sry <- fc_contacts |>
+  fc_contacts_sry <- fc_datasets$fc_contacts |>
     # deal with missing and interval contact ages but imputing from a uniform
     # distribution (in a vectorised way, for marginal computational efficiency
     # gain)
@@ -445,8 +467,10 @@ process_fc_data_conmat <- function() {
       .after = everything()
     ) |>
     # add on wave and day columns
-    left_join(fc_contacts_extra,
-              by = "cont_id") |>
+    left_join(
+      fc_datasets$fc_contacts_extra,
+      by = "cont_id"
+    ) |>
     # count contacts per participant/wave/day
     group_by(
       part_id,
@@ -492,6 +516,7 @@ process_fc_data_conmat <- function() {
       part_age,
       .before = cont_age
     )
+  
 }
 
 # supporting function for quantizing
