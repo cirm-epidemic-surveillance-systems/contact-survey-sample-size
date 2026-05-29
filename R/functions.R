@@ -317,11 +317,61 @@ process_fc_data_conmat <- function() {
   
   # participant info
   fc_participants <- read_csv(
-    fc_data_filepath("participant",
-                     "common"))
+    fc_data_filepath("participant", "common"),
+    col_types = cols(
+      part_id = col_double(),
+      hh_id = col_character(),
+      part_age = col_double(),
+      part_gender = col_character()
+    )
+  )
+  
   fc_participants_extra <- read_csv(
-    fc_data_filepath("participant",
-                     "extra"))
+    fc_data_filepath("participant", "extra"),
+    col_types = cols(
+      part_id = col_double(),
+      wave_part_id = col_double(),
+      wave = col_double(),
+      questionnaire.type = col_double(),
+      childRespondentLink = col_double(),
+      childRespondentAge = col_double(),
+      childRespondentGender = col_double(),
+      transportModeWeek1 = col_double(),
+      transportModeWeek2 = col_double(),
+      transportModeWeek3 = col_double(),
+      transportModeWeekEnd1 = col_double(),
+      transportModeWeekEnd2 = col_double(),
+      transportModeWeekEnd3 = col_double(),
+      ZIP = col_double(),
+      participant_education = col_double(),
+      participant_occupation = col_double(),
+      participant_occ_detail = col_double(),
+      enfScolarise = col_double(),
+      enfGardeMaison = col_double(),
+      enfGardeNounou = col_double(),
+      enfNbEnfNounou = col_double(),
+      enfNounouScolarise = col_double(),
+      enfCreche = col_double(),
+      enfNbEnfCreche = col_double(),
+      enfFreqGarderie = col_double(),
+      class_size = col_double(),
+      enfCantine = col_double(),
+      enfCentreAere = col_double(),
+      enfCentreAereEcole = col_double(),
+      enfCentreAereVacance = col_double(),
+      work_contacts = col_double(),
+      more20ContactPro = col_double(),
+      work_contacts_nr = col_double(),
+      AgeContactPro1 = col_double(),
+      AgeContactPro2 = col_double(),
+      AgeContactPro3 = col_double(),
+      AgeContactPro4 = col_double(),
+      AgeContactPro5 = col_double(),
+      NbStudentClassroom = col_double(),
+      studentCantina = col_double(),
+      commonParticip = col_double()
+    )
+  )
   
   # get all observed combinations of participant and wave, to pad contacts with
   # 0s
@@ -342,11 +392,34 @@ process_fc_data_conmat <- function() {
   
   # contact events
   fc_contacts <- read_csv(
-    fc_data_filepath("contact",
-                     "common"))
+    fc_data_filepath("contact", "common"),
+    col_types = cols(
+      part_id = col_double(),
+      cont_id = col_character(),
+      cnt_age_exact = col_double(),
+      cnt_age_est_min = col_double(),
+      cnt_age_est_max = col_double(),
+      cnt_gender = col_character(),
+      cnt_home = col_logical(),
+      cnt_work = col_logical(),
+      cnt_school = col_logical(),
+      cnt_transport = col_logical(),
+      cnt_leisure = col_logical(),
+      cnt_otherplace = col_logical(),
+      frequency_multi = col_double(),
+      phys_contact = col_double(),
+      duration_multi = col_double()
+    )
+  )
+  
   fc_contacts_extra <- read_csv(
-    fc_data_filepath("contact",
-                     "extra"))  
+    fc_data_filepath("contact", "extra"),
+    col_types = cols(
+      cont_id = col_character(),
+      wave = col_double(),
+      studyDay = col_double()
+    )
+  )  
   
   # collapse contact events to count contacts per participant, per wave, per
   # studyDay, per contact age
@@ -393,7 +466,7 @@ process_fc_data_conmat <- function() {
     by = 1)
   
   fc_contacts_complete <- fc_contacts_sry |>  
-    complete(
+    tidyr::complete(
       # only the participant/wave/studyDay combinations in the data
       nesting(part_id, wave, studyDay),
       # but for all possible ages
