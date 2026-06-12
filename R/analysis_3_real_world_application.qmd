@@ -308,7 +308,7 @@ autoplot(age_matrix_participant)
 
 And finally, we can extract the standard deviation of the participant random effect.
 
-```{r eval=FALE}
+```{r eval=FALSE}
 variances <- mgcv::gam.vcomp(fc_model_participant_lores)
 idx <- match("s(part_id)", names(variances))
 sigma_fc_onestage <- sqrt(variances[idx])
@@ -536,5 +536,3 @@ overall_size_age
 overall_size_age_scaled
 overall_size_age_activity
 ```
-
-Need to
