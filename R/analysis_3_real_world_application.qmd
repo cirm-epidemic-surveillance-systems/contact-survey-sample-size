@@ -74,15 +74,15 @@ fc_population <- age_population(
 )
 ```
 
-Run conmat on this and return the age-structured matrix, predicted to 5-year age groups plus a terminal age group above 75.
+Run conmat on this and return the age-structured matrix, predicted to 5-year age groups up to 90, the oldest age among participants in the data.
 
 ```{r}
 fc_model_aggregated <- fit_single_contact_model(
   contact_data = fc_contact_data_summarised,
   population = fc_population
 )
-
-age_breaks <- c(seq(0, 75, by = 5), Inf)
+max_age <- 90
+age_breaks <- seq(0, max_age, by = 5)
 age_contact_pred <- predict_contacts(fc_model_aggregated,
                                      fc_population,
                                      age_breaks = age_breaks)
@@ -226,10 +226,10 @@ fc_model_participant <- fit_single_contact_model(
 We can reduce this computational complexity by reducing the resolution of the contact ages into bins, and using the midpoint age of the bin. This is an approximation to the likelihood (equivalent to the windowing method for approximating a Poisson process likelihood with a midpoint integration rule), and will reduce the age-resolution of the age-contact patterns estimated by contact, potentially over-smoothing the age-effect estimates. By reducing the contact age resolution into 5 year bins, we can reduce the number of datapoints for fitting to around 35,000.
 
 ```{r}
-# find the maximum age
-max_age <- 99
+# set the maximum age in the data
+max_age_data <- 99
 resolution <- 5
-age_agg_breaks <- c(seq(0, max_age, by = resolution), Inf)
+age_agg_breaks <- c(seq(0, max_age_data, by = resolution), Inf)
 
 # create a lookup to aggregate ages into 5 year bins
 age_agg_lookup <- tibble(
@@ -239,7 +239,7 @@ age_agg_lookup <- tibble(
   mutate(
     label = sprintf("[%s,%s)", lower, upper),
     upper = case_when(
-      !is.finite(upper) ~ max_age + 1,
+      !is.finite(upper) ~ max_age_data + 1,
       .default = upper),
     midpoint = lower + 2
   ) |>
@@ -380,12 +380,27 @@ ages <- fc_population$upper.age.limit
 pops <- fc_population$population
 cumpops <- cumsum(pops) / sum(pops)
 
+# approximate the CDF of the age distribution and use this to estimate the integral to the max age
+prob_max <- approx(x = ages,
+                   y = cumpops,
+                   xout = max_age,
+                   rule = 2)$y
+
+# approximate the quantile function of the age distribution, truncated at max_age by rescaling the cumulative densities, and use this to define even-sized breaks. 
+cumpops_norm <- cumpops / prob_max
+
 n_age_bins <- 6
 breaks <- seq(0, 1, length.out = n_age_bins + 1)
-age_breaks <- round(approx(x = cumpops, y = ages, xout = breaks, rule = 2)$y)
-age_breaks[n_age_bins + 1] <- Inf
+age_breaks <- round(approx(x = cumpops_norm,
+                           y = ages,
+                           xout = breaks,
+                           rule = 2)$y)
+
+# force max age just in case of numerical errors
+age_breaks[n_age_bins + 1] <- max_age
 age_breaks[1] <- 0
 
+# make contact matrix
 age_contact_pred <- predict_contacts(fc_model_aggregated,
                                      fc_population,
                                      age_breaks = age_breaks)
@@ -416,19 +431,15 @@ Next we recompute these matrices for a predetermined set of 5 year age bins, and
 Compute the age matrix, and the population fraction in each of these age bins:
 
 ```{r}
-age_breaks <- c(seq(0, 75, by = 5), Inf)
+age_breaks <- seq(0, max_age, by = 5)
 age_contact_pred <- predict_contacts(fc_model_aggregated,
                                      fc_population,
                                      age_breaks = age_breaks)
 age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
-pop_total <- sum(fc_population$population)
-pop_terminal <- fc_population |>
-  filter(lower.age.limit >= 75) |>
-  pull(population) |>
-  sum()
-pop_bin <- c(fc_population$population[seq_len(length(age_breaks) - 2)],
-             pop_terminal)
-age_fractions <- pop_bin / pop_total
+pop_bin <- fc_population |>
+  filter(lower.age.limit < max_age) |>
+  pull(population)
+age_fractions <- pop_bin / sum(pop_bin)
 ```
 
 Activity matrix, with 10 bins and Gaussian quadrature for bin sizes and activity levels
