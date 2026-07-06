@@ -564,6 +564,41 @@ size_age_activity_by_age <- size_age_activity |>
     p_infected = sum(p_infected * activity_fractions))
 ```
 
+## Bootstrap uncertainty
+
+To quantify sampling uncertainty in these estimates we use a participant-level (cluster) bootstrap: we resample the survey participants with replacement (giving each drawn participant a fresh identifier, so a participant drawn more than once contributes as distinct individuals) and re-run the entire two-stage pipeline - age-structured contact model, residual heterogeneity `sigma`, activity matrix, R0s and final sizes - on each resample. The contact ages are re-imputed for each replicate, so imputation uncertainty is folded in as well.
+
+This is computationally expensive, so the bootstrap is run separately by `R/bootstrap_analysis_3.R` (which parallelises across cores and caches its output). Here we load the cached replicates and summarise them. We report **bias-corrected ("BC")** bootstrap intervals: percentile intervals adjusted for any median bias between the point estimate and the bootstrap distribution. The acceleration term of a full BCa interval is deferred - it needs either a separate jackknife or a jackknife-after-bootstrap from the stored resample membership, and is only worth adding if the bootstrap distributions turn out to be materially skewed (inspect `z0` in the summary table below).
+
+```{r}
+boot <- readRDS("data/boot_analysis_3.rds")
+
+# keep only the replicates that fitted successfully
+boot_ok <- boot$replicates |>
+  keep(~ is.null(.x$result$error))
+
+n_boot <- length(boot_ok)
+
+# tidy by-age final sizes across replicates (raw scenario keys)
+boot_by_age <- boot_ok |>
+  map_dfr(~ mutate(.x$result$by_age, rep = .x$rep))
+
+# tidy scalar quantities across replicates
+boot_scalars <- boot_ok |>
+  map_dfr(~ tibble(
+    rep = .x$rep,
+    sigma = .x$result$sigma,
+    R0_age = .x$result$R0_age,
+    R0_age_activity = .x$result$R0_age_activity,
+    overall_age = .x$result$overall[["age"]],
+    overall_age_scaled = .x$result$overall[["age_scaled"]],
+    overall_age_activity = .x$result$overall[["age_activity"]]
+  ))
+
+sprintf("%i of %i bootstrap replicates used (%i failed)",
+        n_boot, boot$config$B, boot$config$B - n_boot)
+```
+
 Plot these age distributions
 
 ```{r}
@@ -582,17 +617,34 @@ final_size_scenarios <- bind_rows(
   age          = size_age,
   age_scaled   = size_age_scaled,
   age_activity = size_age_activity_by_age,
-  .id = "scenario"
+  .id = "scenario_key"
 ) |>
   mutate(
     scenario = factor(
-      scenario_labels[scenario],
+      scenario_labels[scenario_key],
       levels = scenario_labels
     ),
     age_lower = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 2]),
     age_upper = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 3])
   ) |>
   arrange(scenario, age_lower)
+
+# bootstrap BC interval for each scenario x age bin, to draw as a band. The band
+# is piecewise-constant across each age bin (a geom_rect per bin), matching the
+# step lines exactly (a geom_ribbon would slope between bin midpoints instead).
+final_size_ci <- final_size_scenarios |>
+  select(scenario_key, scenario, age_lower, age_upper, p_infected) |>
+  pmap_dfr(function(scenario_key, scenario, age_lower, age_upper, p_infected) {
+    reps <- boot_by_age |>
+      filter(scenario == scenario_key, age_lower == !!age_lower) |>
+      pull(p_infected)
+    bc_ci(reps, p_infected) |>
+      mutate(
+        scenario = scenario,
+        age_lower = age_lower,
+        age_upper = age_upper
+      )
+  })
 
 # add a terminal point at the upper edge of the final bin for each scenario, so
 # the step spans the full width of every age bin (piecewise constant)
@@ -609,6 +661,13 @@ final_size_points <- final_size_scenarios |>
   mutate(age_mid = (age_lower + age_upper) / 2)
 
 final_size_plot <- ggplot() +
+  # 95% bootstrap BC interval, piecewise-constant across each age bin
+  geom_rect(
+    data = final_size_ci,
+    aes(xmin = age_lower, xmax = age_upper,
+        ymin = bc_lower, ymax = bc_upper, fill = scenario),
+    alpha = 0.2
+  ) +
   geom_step(
     data = final_size_steps,
     aes(x = age_lower, y = p_infected, colour = scenario),
@@ -616,13 +675,14 @@ final_size_plot <- ggplot() +
     linewidth = 0.8
   ) +
   scale_colour_brewer(palette = "Dark2") +
+  scale_fill_brewer(palette = "Dark2") +
+  guides(fill = "none") +
   scale_y_continuous(labels = scales::label_percent()) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(
     x = "age",
     y = "final attack rate",
-    colour = "scenario",
-    shape = "scenario"
+    colour = "scenario"
   ) +
   theme_minimal()
 
@@ -636,13 +696,38 @@ ggsave("figures/final_size_by_age.png",
 final_size_plot
 ```
 
-Compute the overall final size from these bin-specific final sizes
+Compute the overall (population-weighted) final size from these bin-specific final sizes
 
 ```{r}
 overall_size_age <- sum(size_age$p_infected * age_fractions)
 overall_size_age_scaled <- sum(size_age_scaled$p_infected * age_fractions)
 overall_size_age_activity <- sum(size_age_activity$p_infected * age_activity_fractions)
-overall_size_age
-overall_size_age_scaled
-overall_size_age_activity
+```
+
+Finally, assemble the headline quantities with their point estimates and 95% bootstrap intervals. We show the bias-corrected ("BC") interval alongside the plain percentile interval, and the bias-correction constant `z0` (large `|z0|` would indicate the bootstrap distribution is noticeably off-centre from the point estimate, and hence that adding the BCa acceleration term might be worthwhile).
+
+```{r}
+summary_table <- bind_rows(
+  bc_ci(boot_scalars$R0_age, R0_age) |>
+    mutate(quantity = "R0 (age matrix)"),
+  bc_ci(boot_scalars$R0_age_activity, R0_age_activity) |>
+    mutate(quantity = "R0 (age/activity matrix)"),
+  bc_ci(boot_scalars$sigma, sigma_fc_twostage) |>
+    mutate(quantity = "residual heterogeneity (sigma)"),
+  bc_ci(boot_scalars$overall_age, overall_size_age) |>
+    mutate(quantity = "overall final size (age matrix)"),
+  bc_ci(boot_scalars$overall_age_scaled, overall_size_age_scaled) |>
+    mutate(quantity = "overall final size (age matrix, rescaled)"),
+  bc_ci(boot_scalars$overall_age_activity, overall_size_age_activity) |>
+    mutate(quantity = "overall final size (age/activity matrix)")
+) |>
+  transmute(
+    quantity,
+    estimate,
+    `BC 95% CI` = sprintf("(%.3f, %.3f)", bc_lower, bc_upper),
+    `percentile 95% CI` = sprintf("(%.3f, %.3f)", pct_lower, pct_upper),
+    z0 = round(z0, 2)
+  )
+
+knitr::kable(summary_table, digits = 3)
 ```
