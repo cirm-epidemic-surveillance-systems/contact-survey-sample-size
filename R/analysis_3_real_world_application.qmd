@@ -562,34 +562,73 @@ size_age_activity_by_age <- size_age_activity |>
 Plot these age distributions
 
 ```{r}
-plot_final_size_by_age <- function() {
-  plot(p_infected ~ factor(demo_grp),
-       type = "p",
-       pch = 16,
-       data = size_age_activity_by_age,
-       ylim = c(0, 1))
-  points(p_infected ~ factor(demo_grp),
-       pch = 16,
-       data = size_age,
-       col = "red")
-  points(p_infected ~ factor(demo_grp),
-       pch = 16,
-       data = size_age_scaled,
-       col = "blue")
-}
+# scenario labels, including the actual R0 each final size was computed under
+# (ordered as they should appear in the legend)
+scenario_labels <- c(
+  age          = sprintf("age matrix (R0 = %.2f)", R0_age),
+  age_activity = sprintf("age/activity matrix (R0 = %.2f)", R0_age_activity),
+  age_scaled   = sprintf("age matrix, rescaled (R0 = %.2f)", R0_age_activity)
+)
 
-# save to file
-png("figures/final_size_by_age.png",
-    width = 6,
-    height = 5,
-    units = "in",
-    res = 300,
-    bg = "white")
-plot_final_size_by_age()
-dev.off()
+# combine the three scenarios into one tibble, and parse the lower/upper edges
+# of each age bin from the group label (e.g. "[0,5)") so the bins can be placed
+# numerically on the x axis
+final_size_scenarios <- bind_rows(
+  age          = size_age,
+  age_scaled   = size_age_scaled,
+  age_activity = size_age_activity_by_age,
+  .id = "scenario"
+) |>
+  mutate(
+    scenario = factor(
+      scenario_labels[scenario],
+      levels = scenario_labels
+    ),
+    age_lower = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 2]),
+    age_upper = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 3])
+  ) |>
+  arrange(scenario, age_lower)
 
-# and render inline
-plot_final_size_by_age()
+# add a terminal point at the upper edge of the final bin for each scenario, so
+# the step spans the full width of every age bin (piecewise constant)
+final_size_steps <- final_size_scenarios |>
+  group_by(scenario) |>
+  group_modify(~ bind_rows(
+    .x,
+    mutate(slice_tail(.x, n = 1), age_lower = age_upper)
+  )) |>
+  ungroup()
+
+# points at the bin midpoints, to carry the per-scenario symbols
+final_size_points <- final_size_scenarios |>
+  mutate(age_mid = (age_lower + age_upper) / 2)
+
+final_size_plot <- ggplot() +
+  geom_step(
+    data = final_size_steps,
+    aes(x = age_lower, y = p_infected, colour = scenario),
+    direction = "hv",
+    linewidth = 0.8
+  ) +
+  scale_colour_brewer(palette = "Dark2") +
+  scale_y_continuous(labels = scales::label_percent()) +
+  coord_cartesian(ylim = c(0, 1)) +
+  labs(
+    x = "age",
+    y = "final attack rate",
+    colour = "scenario",
+    shape = "scenario"
+  ) +
+  theme_minimal()
+
+ggsave("figures/final_size_by_age.png",
+       plot = final_size_plot,
+       bg = "white",
+       width = 7,
+       height = 5,
+       dpi = 300)
+
+final_size_plot
 ```
 
 Compute the overall final size from these bin-specific final sizes
