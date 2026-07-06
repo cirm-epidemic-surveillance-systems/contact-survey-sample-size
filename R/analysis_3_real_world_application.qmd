@@ -88,7 +88,14 @@ age_contact_pred <- predict_contacts(fc_model_aggregated,
                                      age_breaks = age_breaks)
 
 age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
-autoplot(age_matrix)
+age_matrix_plot <- autoplot(age_matrix)
+ggsave("figures/fc_age_matrix.png",
+       plot = age_matrix_plot,
+       bg = "white",
+       width = 6,
+       height = 5,
+       dpi = 300)
+age_matrix_plot
 ```
 
 This is the type of standard analysis we would use to estimate an age-structured contact matrix. Now we wish to estimate the amount of contact heterogeneity in the survey data that is not explained by this-structured contact matrix, parameterised by the residual standard deviation of (log-)contacts.
@@ -303,7 +310,14 @@ age_matrix_participant <- fc_model_participant_lores |>
   predictions_to_matrix()
 
 # output the discretised age matrix
-autoplot(age_matrix_participant)
+age_matrix_participant_plot <- autoplot(age_matrix_participant)
+ggsave("figures/fc_age_matrix_participant.png",
+       plot = age_matrix_participant_plot,
+       bg = "white",
+       width = 6,
+       height = 5,
+       dpi = 300)
+age_matrix_participant_plot
 ```
 
 And finally, we can extract the standard deviation of the participant random effect.
@@ -370,6 +384,12 @@ We can visuliase this
 ```{r}
 activity_mat_plot <- autoplot_contact_matrix(activity_matrix, palette = 2) +
   ggtitle("activity-structured")
+ggsave("figures/activity_structured_matrix.png",
+       plot = activity_mat_plot,
+       bg = "white",
+       width = 6,
+       height = 5,
+       dpi = 300)
 activity_mat_plot
 ```
 
@@ -408,6 +428,12 @@ age_contact_pred <- predict_contacts(fc_model_aggregated,
 age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
 age_mat_plot <- autoplot_contact_matrix(age_matrix, palette = 1) +
   ggtitle("age-structured")
+ggsave("figures/age_structured_matrix.png",
+       plot = age_mat_plot,
+       bg = "white",
+       width = 6,
+       height = 5,
+       dpi = 300)
 age_mat_plot
 ```
 
@@ -422,8 +448,14 @@ We can visualise these together
 ```{r}
 age_activity_mat_plot <- autoplot_contact_matrix(age_activity_matrix, palette = 7) +
   ggtitle("age/activity-structured")
+ggsave("figures/age_activity_structured_matrix.png",
+       plot = age_activity_mat_plot,
+       bg = "white",
+       width = 6,
+       height = 5,
+       dpi = 300)
 age_activity_mat_plot
-  
+
 ```
 
 Next we recompute these matrices for a predetermined set of 5 year age bins, and a more optimal configuration of activity bins, and investigate the implications for analyses of disease transmission.
@@ -522,19 +554,34 @@ size_age_activity_by_age <- size_age_activity |>
 Plot these age distributions
 
 ```{r}
-plot(p_infected ~ factor(demo_grp),
-     type = "p",
-     pch = 16,
-     data = size_age_activity_by_age,
-     ylim = c(0, 1))
-points(p_infected ~ factor(demo_grp),
-     pch = 16,
-     data = size_age,
-     col = "red")
-points(p_infected ~ factor(demo_grp),
-     pch = 16,
-     data = size_age_scaled,
-     col = "blue")
+plot_final_size_by_age <- function() {
+  plot(p_infected ~ factor(demo_grp),
+       type = "p",
+       pch = 16,
+       data = size_age_activity_by_age,
+       ylim = c(0, 1))
+  points(p_infected ~ factor(demo_grp),
+       pch = 16,
+       data = size_age,
+       col = "red")
+  points(p_infected ~ factor(demo_grp),
+       pch = 16,
+       data = size_age_scaled,
+       col = "blue")
+}
+
+# save to file
+png("figures/final_size_by_age.png",
+    width = 6,
+    height = 5,
+    units = "in",
+    res = 300,
+    bg = "white")
+plot_final_size_by_age()
+dev.off()
+
+# and render inline
+plot_final_size_by_age()
 ```
 
 Compute the overall final size from these bin-specific final sizes
