@@ -27,6 +27,10 @@ Load packages and functions
 #| warning: false
 source("R/packages.R")
 source("R/functions.R")
+
+# set a seed for reproducibility, since contact ages are randomly imputed in
+# process_fc_data_conmat()
+set.seed(2026-07-06)
 ```
 
 Install the experimental `heterogeneous-augmentation` branch of conmat for simultaneous fitting of age effects and residual heterogeneity.
@@ -161,13 +165,17 @@ age_contact_pred_years <- fc_model_aggregated %>%
   )
 ```
 
-Next, add this to the participant level data.
+Next, add this to the participant level data. We truncate participant and contact ages at `max_age` (as elsewhere), since the age-structured contact model extrapolates poorly in the sparsely-observed oldest age groups: predicted contact rates there collapse to near zero, so an observed contact against a near-zero offset would otherwise create extreme leverage that destabilises the random effects model.
 
 ```{r}
 fc_contact_data_modelling <- fc_contact_data %>%
   left_join(
     age_contact_pred_years,
     by = c("age_from", "age_to")
+  ) %>%
+  filter(
+    age_from <= max_age,
+    age_to <= max_age
   )
 ```
 
