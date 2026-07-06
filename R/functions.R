@@ -604,11 +604,7 @@ bin_mean_activity <- function(lower, upper, sigma) {
 # activity level per bin
 quantile2_classes_mean <- function(sigma,
                                    n_classes,
-                                   alpha = 1e-5) {
-  
-  # upper limit for integration
-  max_quantile <- 1 - alpha
-  # max_activity <- qlnorm(max_quantile, meanlog = 0, sdlog = sigma)
+                                   max_quantile = 1 - 1e-5) {
   
   # define quantiles and get lower and upper bounds of the bins
   probs <- seq(0, max_quantile, length.out = n_classes + 1)

@@ -6,32 +6,110 @@ editor: visual
 
 # Comparing alternative binning methods for summarising the activity level distribution
 
-The computational efficiency of our proposed method relies on the ability to represent the population distribution of activity levels in a comparatively low number of bins. Specifically, we aim to rapidly converge on the true eigenvalue for a population, as the number of bins increases.
+The computational efficiency of our proposed method relies on the ability to represent the population distribution of activity levels in a comparatively low number of bins. Specifically, we aim to rapidly converge on the true eigenvalue for a population, as the number of bins increases. We find that defining bin sizes and activity levels according to a Gaussian quadrature scheme achieves a good level of convergence, and outperforms using evenly-sized bins and setting the bin activity level to the bin mean.
 
-### Methods
+Here we illustrate the differences between these two alternative binning methods, both visually and in terms of representing the mean and variance of the distribution, and then demonstrate that the Gaussian quadrature scheme converges on the true eigenvalue considerably more quickly than the evenly-sized bins approach.
 
-This analysis compares a number of alternative methods:
+The two binning methods we consider are defined as follows
 
 #### Quantiles with mean activity
-Define bins by evenly-spaced quantiles and approximate the mean activity levels in each bin
+
+Define bins of equal population size by defining evenly-spaced quantiles of the distribution over activity levels (up to some maximum quantile) and set the activity level for each bin to its mean, computed by numerical integration via one dimensional adaptive quadrature over the activity range of the bin.
 
 #### Gaussian quadrature scheme
-Define bins according to the points of a Guassian quadrature scheme, with poulation fractions given by the normalised weights.
 
-#### Evenly-sized bins
-Defining bins of even size (i.e. range of activity levels between the upper and lower bound of the bin) up to the 99.9 percentile of the distribution, approximating the mean activity level (by numerical integration) and computing population fraction in each bin.
+Define bins of unequal size according to the nodes of a Guassian quadrature scheme, with activity levels given by the node locations, and population fractions given by the normalised weights.
 
-#### Hybrid scheme of quantiles and evenly-sized bins
-Defining around half the bins to be equal quantiles, up to the 90 percentile, and then the remaining bins to be evenly sized, from the 90 to the 99.9 percentiles, approximating the mean activity level (by numerical integration) and computing population fraction in each bin.
-
-### Evaluation
-
-```{r}
+```{r echo = FALSE}
 #| message: false
 #| warning: false
 source("R/packages.R")
 source("R/functions.R")
 ```
+
+#### Illustrating the binning schemes
+
+First, we illustrate how two of the binning schemes place their bins relative to the target distribution. For both schemes we use 7 bins and set \$\\sigma = 0.4\$. The top panel shows the target lognormal density of activity levels, corresponding to our model of activity. The middle and lower panels show the bin activity levels (points) and population fractions (vertical stems) for the quantile-mean and Gaussian quadrature schemes respectively.
+
+```{r}
+#| message: false
+#| warning: false
+sigma <- 0.4
+n_int <- 7
+
+# quantile mean and Gaussian quadrature classes
+quantile_classes <- quantile2_classes_mean(sigma = sigma,
+                                            n_classes = n_int)
+gq_classes <- gaussquad_classes(sigma = sigma,
+                                n_classes = n_int)
+
+# common x-axis range
+xmax <- max(
+  qlnorm(0.99, 0, sigma),
+  max(quantile_classes$activity),
+  max(gq_classes$activity)
+)
+
+# top panel: target distribution
+p_target <- ggplot() +
+  geom_function(
+    fun = dlnorm,
+    args = list(meanlog = 0, sdlog = sigma)
+  ) +
+  xlim(0, xmax) +
+  labs(
+    title = "Target distribution",
+    x = "activity level (v)",
+    y = "p(v)"
+  ) +
+  theme_minimal()
+
+# middle panel: quantile mean classes
+p_quantile <- ggplot(quantile_classes,
+                     aes(x = activity, y = fraction)) +
+  geom_segment(
+    aes(xend = activity, yend = 0)
+  ) +
+  geom_point(size = 2) +
+  xlim(0, xmax) +
+  ylim(0, max(quantile_classes$fraction) * 1.1) +
+  labs(
+    title = "Quantile mean",
+    x = "activity level (v)",
+    y = "population fraction"
+  ) +
+  theme_minimal()
+
+# lower panel: Gaussian quadrature classes
+p_gq <- ggplot(gq_classes,
+              aes(x = activity, y = fraction)) +
+  geom_segment(
+    aes(xend = activity, yend = 0)
+  ) +
+  geom_point(size = 2) +
+  xlim(0, xmax) +
+  ylim(0, max(gq_classes$fraction) * 1.1) +
+  labs(
+    title = "Gaussian quadrature",
+    x = "activity level (v)",
+    y = "population fraction"
+  ) +
+  theme_minimal()
+
+binning_illustration <- p_target / p_quantile / p_gq
+binning_illustration
+
+ggsave("figures/binning_illustration.png",
+       plot = binning_illustration,
+       bg = "white",
+       scale = 1,
+       width = 6,
+       height = 8)
+```
+
+![](../figures/binning_illustration.png)
+
+The Gaussian quadrature scheme is able to place bins much further into the two tails of the distribution than the quantile mean scheme. Whilst few individuals would have activity levels in these tails, those that do (particularly at the upper tail) contribute significantly to the population eigenvalue.
 
 #### Approximating the distribution
 
