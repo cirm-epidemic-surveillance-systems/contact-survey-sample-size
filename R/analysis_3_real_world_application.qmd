@@ -182,12 +182,19 @@ fc_contact_data_modelling <- fc_contact_data %>%
 Finally, fit a Poisson GLMM and extract the estimate of sigma.
 
 ```{r}
-# fit the model
+# fit the model. We use nAGQ = 0 (optimising the random effects within the
+# PIRLS step rather than a separate adaptive Gauss-Hermite quadrature): the
+# default nAGQ = 1 Laplace fit is numerically unstable here - the many rare
+# age-pair observations with very small predicted offsets create high-leverage
+# points that intermittently break the PIRLS step ("Downdated VtV is not
+# positive definite"), depending on the random contact-age imputation. nAGQ = 0
+# is robust to this and gives an effectively identical variance estimate.
 model_twostage <- lme4::glmer(
   contacts ~ offset(log(predicted_contacts)) +
     (1|part_id),
   family = stats::poisson,
-  data = fc_contact_data_modelling
+  data = fc_contact_data_modelling,
+  nAGQ = 0
 )
 ```
 
