@@ -392,12 +392,6 @@ We can visuliase this
 ```{r}
 activity_mat_plot <- autoplot_contact_matrix(activity_matrix, palette = 2) +
   ggtitle("activity-structured")
-ggsave("figures/activity_structured_matrix.png",
-       plot = activity_mat_plot,
-       bg = "white",
-       width = 6,
-       height = 5,
-       dpi = 300)
 activity_mat_plot
 ```
 
@@ -436,12 +430,6 @@ age_contact_pred <- predict_contacts(fc_model_aggregated,
 age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
 age_mat_plot <- autoplot_contact_matrix(age_matrix, palette = 1) +
   ggtitle("age-structured")
-ggsave("figures/age_structured_matrix.png",
-       plot = age_mat_plot,
-       bg = "white",
-       width = 6,
-       height = 5,
-       dpi = 300)
 age_mat_plot
 ```
 
@@ -456,14 +444,24 @@ We can visualise these together
 ```{r}
 age_activity_mat_plot <- autoplot_contact_matrix(age_activity_matrix, palette = 7) +
   ggtitle("age/activity-structured")
-ggsave("figures/age_activity_structured_matrix.png",
-       plot = age_activity_mat_plot,
-       bg = "white",
-       width = 6,
-       height = 5,
-       dpi = 300)
 age_activity_mat_plot
 
+```
+
+Finally, combine the three illustrative matrices into a single three-panel figure (age-structured, activity-structured, age/activity-structured) for the manuscript.
+
+```{r}
+illustrative_matrices_plot <- age_mat_plot +
+  activity_mat_plot +
+  age_activity_mat_plot +
+  plot_layout(nrow = 1)
+ggsave("figures/illustrative_contact_matrices.png",
+       plot = illustrative_matrices_plot,
+       bg = "white",
+       width = 15,
+       height = 5,
+       dpi = 300)
+illustrative_matrices_plot
 ```
 
 Next we recompute these matrices for a predetermined set of 5 year age bins, and a more optimal configuration of activity bins, and investigate the implications for analyses of disease transmission.
