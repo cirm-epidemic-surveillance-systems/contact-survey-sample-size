@@ -322,18 +322,26 @@ partition_variance_glmer <- function (model) {
 
 }
 
-make_barplot <- function(partitioning) {
-  
-  # set up colour palette for bar charts
+make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
+
+  # semantic colour palette:
+  # - within individuals: light grey - the dominant component, but the one of
+  #   least significance in the downstream analyses, so de-emphasised
+  # - between individuals (unexplained): green, matching the activity-structured
+  #   contact matrix panel in analysis 3
+  # - between ages: blue, matching the age-structured contact matrix panel in
+  #   analysis 3
+  # - between genders / occupations: distinguishable shades of the age blue, as
+  #   they are largely confounded with age
   colour_palette <- c(
-    "within individuals" = "pink",
-    "between individuals (unexplained)" = scales::alpha("blue", 0.1),
-    "between genders" = scales::alpha("blue", 0.4),
-    "between ages" = scales::alpha("blue", 0.5),
-    "between occupations" =  scales::alpha("blue", 0.6)
+    "within individuals" = "grey88",
+    "between individuals (unexplained)" = "#41AE76",
+    "between ages" = "#2171B5",
+    "between genders" = "#9ECAE1",
+    "between occupations" = "#08306B"
   )
-  
-  partitioning |>
+
+  plot_data <- partitioning |>
     # set the factor order for partition to how we want to plot it
     mutate(
       partition = factor(partition,
@@ -357,28 +365,79 @@ make_barplot <- function(partitioning) {
     rename(
       `Variance explained` = proportion,
       Component = partition
-    ) |>
-    ggplot(
+    )
+
+  # split the labels: large slices are labelled inside the bar; small slices
+  # that would overlap are labelled outside with a leader line (coloured by
+  # component, so which label belongs to which slice is unambiguous)
+  labels_inside <- plot_data |>
+    filter(`Variance explained` >= label_threshold)
+  labels_outside <- plot_data |>
+    filter(`Variance explained` < label_threshold)
+  # nudge outside labels away from the bars: left for the first study, right for
+  # the rest
+  n_studies <- length(unique(plot_data$Study))
+  outside_nudge <- ifelse(
+    as.integer(factor(labels_outside$Study)) <= n_studies / 2,
+    -0.7,
+    0.7
+  )
+
+  p <- ggplot(
+      plot_data,
       aes(
         x = Study,
         y = `Variance explained`,
         fill = Component
       )
-    ) + 
+    ) +
     geom_bar(
       stat = "identity"
     ) +
     geom_text(
+      data = labels_inside,
       aes(
         label = text_percent,
         y = text_position
-      )
+      ),
+      size = 5
     ) +
     scale_y_continuous(
       labels = scales::label_percent()
     ) +
-    scale_fill_manual(values = colour_palette) +
+    # drop = FALSE keeps all components in the scale (and hence the legend) even
+    # when a panel lacks some, so legends can be combined across panels
+    scale_fill_manual(values = colour_palette, drop = drop) +
+    # matched colour scale for the leader-line labels (no separate legend)
+    scale_colour_manual(values = colour_palette, guide = "none") +
     theme_minimal()
+
+  # only add the leader-line layer (and the extra horizontal room it needs) when
+  # there are small slices to label this way
+  if (nrow(labels_outside) > 0) {
+    p <- p +
+      ggrepel::geom_text_repel(
+        data = labels_outside,
+        aes(
+          label = text_percent,
+          y = text_position,
+          colour = Component
+        ),
+        nudge_x = outside_nudge,
+        direction = "y",
+        hjust = 0,
+        size = 4,
+        min.segment.length = 0,
+        segment.colour = "black",
+        segment.size = 0.25,
+        box.padding = 0.3,
+        show.legend = FALSE,
+        seed = 2026
+      ) +
+      scale_x_discrete(expand = expansion(add = 0.9))
+  }
+
+  p
 }
 
 # load the various French Connection datasets

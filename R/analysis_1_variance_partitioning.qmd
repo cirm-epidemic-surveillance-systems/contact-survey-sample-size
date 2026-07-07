@@ -125,11 +125,11 @@ Make barplots of these
 
 ```{r}
 barplot_none <- make_barplot(partitioning_none) +
-  ggtitle(label = "no covariates")
+  ggtitle(label = "No demographic variables")
 barplot_age <- make_barplot(partitioning_age) +
-  ggtitle(label = "age only")
+  ggtitle(label = "Only age variable")
 barplot_all <- make_barplot(partitioning_all) +
-  ggtitle(label = "additional predictors")
+  ggtitle(label = "All demographic variables")
 
 varpart <- barplot_age +
   ggtitle(
@@ -148,15 +148,44 @@ ggsave("figures/varpart_age.png",
 Arrange them in a multipanel figure, for supplemental materials
 
 ```{r}
-varpart_all <- (barplot_none + barplot_age + barplot_all) +
-  plot_annotation(title = "Partitioning variance in daily log contact rates")
+# panel C ("additional predictors") is the only panel containing all five
+# components, so let it carry the legend (its keys all have data and render
+# correctly); suppress the legend on A and B so a single, shared legend is
+# collected for the whole figure
+panel_age <- make_barplot(partitioning_age) +
+  ggtitle("Only age variable") +
+  theme(legend.position = "none")
+panel_none <- make_barplot(partitioning_none) +
+  ggtitle("No demographic variables") +
+  theme(legend.position = "none") +
+  # match the x-axis padding panel C gets from its leader-line labels, so the
+  # bars in panels B and C have the same width
+  scale_x_discrete(expand = expansion(add = 0.9))
+# raise the threshold so the (small) between-ages slice is labelled with a
+# leader line too, rather than crammed inside the bar next to between-genders
+panel_all <- make_barplot(partitioning_all, label_threshold = 0.07) +
+  ggtitle("All demographic variables")
+
+# panel A (age only) large on the left; B (no covariates) and C (all covariates)
+# stacked on the right
+design <- "
+AB
+AC
+"
+
+varpart_all <- panel_age + panel_none + panel_all +
+  plot_layout(design = design, guides = "collect") +
+  plot_annotation(
+    # title = "Partitioning variance in daily log contact rates",
+    tag_levels = "A"
+  )
 
 ggsave("figures/varpart_all.png",
        plot = varpart_all,
        bg = "white",
        scale = 1,
-       width = 14,
-       height = 5)
+       width = 11,
+       height = 6)
 ```
 
 ![](../figures/varpart_all.png)
