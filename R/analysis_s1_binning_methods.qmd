@@ -29,7 +29,7 @@ source("R/functions.R")
 
 #### Illustrating the binning schemes
 
-First, we illustrate how two of the binning schemes place their bins relative to the target distribution. For both schemes we use 7 bins and set \$\\sigma = 0.4\$. The top panel shows the target lognormal density of activity levels, corresponding to our model of activity. The middle and lower panels show the bin activity levels (points) and population fractions (vertical stems) for the quantile-mean and Gaussian quadrature schemes respectively.
+First, we illustrate how two of the binning schemes place their bins relative to the target distribution. For both schemes we use 7 bins and set $\sigma = 0.4$. The top panel shows the target lognormal density of activity levels, corresponding to our model of activity. The middle and lower panels show the bin activity levels (points) and population fractions (vertical stems) for the quantile-mean and Gaussian quadrature schemes respectively.
 
 ```{r}
 #| message: false
@@ -267,7 +267,7 @@ ggsave("figures/binning_moment_convergence.png",
 
 ![](../figures/binning_moment_convergence.png)
 
-The quantile mean scheme approximates the mean well regardless of the number of bins, but converges very slowly to the true estimate of the variance, as the number of bins increases. By contrast, the Gaussian quadrature scheme converges rapidly and consistently to both the mean and standard deviation at this task. Even with a very large sigma (\$\\sigma=2\$ corresponds to a standard deviation of over a 50-fold difference in contact rates compared with log-mean), the Gaussian quadrature scheme is able to accurately approximate the standard deviation (to within 1% of the true value) with only 11 bins. By comparison, the quantile mean scheme significantly understimates the standard deviation (by a factor of more than 2) even with double the number of bins.
+The quantile mean scheme approximates the mean well regardless of the number of bins, but converges very slowly to the true estimate of the variance, as the number of bins increases. By contrast, the Gaussian quadrature scheme converges rapidly and consistently to both the mean and standard deviation at this task. Even with a very large sigma ($\sigma=2$ corresponds to a standard deviation of over a 50-fold difference in contact rates compared with log-mean), the Gaussian quadrature scheme is able to accurately approximate the standard deviation (to within 1% of the true value) with only 11 bins. By comparison, the quantile mean scheme significantly understimates the standard deviation (by a factor of more than 2) even with double the number of bins.
 
 #### Approximating the eigenvalue
 
@@ -413,4 +413,4 @@ ggsave("figures/binning_eigenvalue_convergence.png",
 
 ![](../figures/binning_eigenvalue_convergence.png)
 
-Across all values of \$\\sigma\$ we see that the Gaussian quadrature scheme converges on the true eigenvalue of the activity-only contact matrix far more quickly than the quantile mean. Even with the extreme \$\\sigma=2\$, 12 bins are sufficient to approximate the eigenvalue to within 1%. With \$\\sigma=0.5\$ (roughly matching the France and Hong Kong data), 3 bins are sufficient to achieve the same level of accuracy.
+Across all values of $\sigma$ we see that the Gaussian quadrature scheme converges on the true eigenvalue of the activity-only contact matrix far more quickly than the quantile mean. Even with the extreme $\sigma=2$, 12 bins are sufficient to approximate the eigenvalue to within 1%. With $\sigma=0.5$ (roughly matching the France and Hong Kong data), 3 bins are sufficient to achieve the same level of accuracy.
