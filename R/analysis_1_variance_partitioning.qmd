@@ -121,30 +121,6 @@ partitioning_all <- bind_rows(
 )
 ```
 
-Make barplots of these
-
-```{r}
-barplot_none <- make_barplot(partitioning_none) +
-  ggtitle(label = "No demographic variables")
-barplot_age <- make_barplot(partitioning_age) +
-  ggtitle(label = "Only age variable")
-barplot_all <- make_barplot(partitioning_all) +
-  ggtitle(label = "All demographic variables")
-
-varpart <- barplot_age +
-  ggtitle(
-    label = "Partitioning variance in daily log contact rates"
-  )
-ggsave("figures/varpart_age.png",
-       plot = varpart,
-       bg = "white",
-       scale = 1,
-       width = 6,
-       height = 4)
-```
-
-![](../figures/varpart_age.png)
-
 Arrange them in a multipanel figure, for supplemental materials
 
 ```{r}
@@ -184,7 +160,7 @@ ggsave("figures/varpart_all.png",
        plot = varpart_all,
        bg = "white",
        scale = 1,
-       width = 11,
+       width = 9,
        height = 6)
 ```
 

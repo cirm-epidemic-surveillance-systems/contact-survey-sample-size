@@ -322,6 +322,18 @@ partition_variance_glmer <- function (model) {
 
 }
 
+# format a proportion (0-1) as a percentage label: to the nearest integer, but
+# to a single decimal place when it would otherwise round to 0%, and "<0.1%"
+# when even one decimal place would round to 0
+format_percent_label <- function(proportion) {
+  pct <- 100 * proportion
+  case_when(
+    round(pct) >= 1 ~ sprintf("%.0f%%", pct),
+    round(pct, 1) >= 0.1 ~ sprintf("%.1f%%", pct),
+    .default = "<0.1%"
+  )
+}
+
 make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
 
   # semantic colour palette:
@@ -357,7 +369,7 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
     ) |>
     # for labels
     mutate(
-      text_percent = scales::label_percent()(proportion),
+      text_percent = format_percent_label(proportion),
       text_position = rev(cumsum(rev(proportion))) - proportion / 2
     ) |>
     ungroup() |>
@@ -377,11 +389,17 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
   # nudge outside labels away from the bars: left for the first study, right for
   # the rest
   n_studies <- length(unique(plot_data$Study))
+  # sit the labels tight against the outer edge of each bar: nudge just far
+  # enough to clear the bar
   outside_nudge <- ifelse(
     as.integer(factor(labels_outside$Study)) <= n_studies / 2,
-    -0.7,
-    0.7
+    -0.5,
+    0.5
   )
+  # align labels to the bar edge: the first (left-hand) study's labels are
+  # right-aligned (right edge against the bar, text into the margin), the rest
+  # left-aligned (left edge against the bar)
+  outside_hjust <- ifelse(outside_nudge < 0, 1, 0)
 
   p <- ggplot(
       plot_data,
@@ -400,16 +418,17 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
         label = text_percent,
         y = text_position
       ),
-      size = 5
+      size = 4
     ) +
     scale_y_continuous(
-      labels = scales::label_percent()
+      labels = scales::label_percent(accuracy = 1)
     ) +
     # drop = FALSE keeps all components in the scale (and hence the legend) even
     # when a panel lacks some, so legends can be combined across panels
     scale_fill_manual(values = colour_palette, drop = drop) +
     # matched colour scale for the leader-line labels (no separate legend)
     scale_colour_manual(values = colour_palette, guide = "none") +
+    xlab(NULL) +
     theme_minimal()
 
   # only add the leader-line layer (and the extra horizontal room it needs) when
@@ -425,16 +444,17 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
         ),
         nudge_x = outside_nudge,
         direction = "y",
-        hjust = 0,
+        hjust = outside_hjust,
         size = 4,
         min.segment.length = 0,
         segment.colour = "black",
         segment.size = 0.25,
-        box.padding = 0.3,
+        box.padding = 0.1,
         show.legend = FALSE,
         seed = 2026
       ) +
-      scale_x_discrete(expand = expansion(add = 0.9))
+      # just enough horizontal room for the label text to sit beside the bars
+      scale_x_discrete(expand = expansion(add = 1))
   }
 
   p
