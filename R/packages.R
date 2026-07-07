@@ -2,6 +2,7 @@
 
 library(tidyverse)
 library(patchwork)
+library(ggrepel)
 library(usedist)
 library(cowplot)
 library(conmat)  # remotes::install_github("goldingn/conmat@heterogeneous-augmentation")

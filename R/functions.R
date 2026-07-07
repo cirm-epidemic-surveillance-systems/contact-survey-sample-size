@@ -250,21 +250,117 @@ partition_variance_lmer <- function (model) {
     rename(
       partition = grp
     )
-  
+
 }
 
-make_barplot <- function(partitioning) {
-  
-  # set up colour palette for bar charts
-  colour_palette <- c(
-    "within individuals" = "pink",
-    "between individuals (unexplained)" = scales::alpha("blue", 0.1),
-    "between genders" = scales::alpha("blue", 0.4),
-    "between ages" = scales::alpha("blue", 0.5),
-    "between occupations" =  scales::alpha("blue", 0.6)
+# given a fitted Poisson-log GLMM that includes an observation-level random
+# effect named "obs", perform the variance partitioning on the latent (log)
+# scale. Unlike a Gaussian LMM, a Poisson-log model has no residual variance
+# parameter: the within-individual, day-to-day variation is split into (i) an
+# observation-level random effect capturing extra-Poisson (overdispersion)
+# variation, and (ii) a "distribution-specific" term for the Poisson sampling
+# variance, expressed on the log scale. Both are pooled into the "within
+# individuals" partition so the result is directly comparable to
+# partition_variance_lmer(). See Nakagawa, Johnson & Schielzeth (2017).
+partition_variance_glmer <- function (model) {
+
+  # random-effect variances, on the log (latent) scale. glmer does not report a
+  # "Residual" row for a Poisson family (the scale is fixed), but filter it out
+  # defensively in case it appears.
+  var_components <- model |>
+    summary() |>
+    extracting("varcor") |>
+    as_tibble() |>
+    filter(grp != "Residual") |>
+    select(
+      grp,
+      var = vcov
+    )
+
+  # population-mean count: lambda = exp(beta0 + 0.5 * sum of RE variances)
+  beta0 <- lme4::fixef(model)[["(Intercept)"]]
+  lambda <- exp(beta0 + 0.5 * sum(var_components$var))
+
+  # distribution-specific (Poisson sampling) variance on the log scale. The
+  # trigamma function is the most exact approximation (Nakagawa et al. 2017); the
+  # lognormal approximation log(1 + 1 / lambda) agrees to within ~1% at the
+  # moderate counts seen here.
+  var_dist <- psigamma(lambda, deriv = 1)
+  # var_dist <- log(1 + 1 / lambda)  # lognormal approximation (alternative)
+
+  var_components |>
+    # add the Poisson sampling variance as its own (within-individual) component
+    bind_rows(
+      tibble(grp = "poisson_sampling", var = var_dist)
+    ) |>
+    mutate(
+      partition = case_when(
+        grp == "part_age" ~ "between ages",
+        grp == "part_gender" ~ "between genders",
+        grp == "part_occupation" ~ "between occupations",
+        grp %in% c("obs", "poisson_sampling") ~ "within individuals",
+        .default = "between individuals (unexplained)",
+      )
+    ) |>
+    # pool the observation-level RE and Poisson sampling into "within
+    # individuals"
+    group_by(
+      partition
+    ) |>
+    summarise(
+      var = sum(var),
+      .groups = "drop"
+    ) |>
+    mutate(
+      proportion = var / sum(var)
+    ) |>
+    select(
+      partition,
+      var,
+      proportion
+    )
+
+}
+
+# format a proportion (0-1) as a percentage label: to the nearest integer, but
+# to a single decimal place when it would otherwise round to 0%, and "<0.1%"
+# when even one decimal place would round to 0
+format_percent_label <- function(proportion) {
+  pct <- 100 * proportion
+  case_when(
+    round(pct) >= 1 ~ sprintf("%.0f%%", pct),
+    round(pct, 1) >= 0.1 ~ sprintf("%.1f%%", pct),
+    .default = "<0.1%"
   )
-  
-  partitioning |>
+}
+
+# as format_percent_label() but always to one decimal place (used in the tables,
+# where there is room for the extra precision); still "<0.1%" below 0.05%
+format_percent_label_1dp <- function(proportion) {
+  pct <- 100 * proportion
+  ifelse(round(pct, 1) >= 0.1, sprintf("%.1f%%", pct), "<0.1%")
+}
+
+make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
+
+  # semantic colour palette:
+  # - within individuals: light grey - the dominant component, but the one of
+  #   least significance in the downstream analyses, so de-emphasised
+  # - between individuals (unexplained): green, matching the activity-structured
+  #   contact matrix panel in analysis 3
+  # - between ages: blue, matching the age-structured contact matrix panel in
+  #   analysis 3
+  # - between genders / occupations: distinguishable shades of the age blue, as
+  #   they are largely confounded with age
+  colour_palette <- c(
+    "within individuals" = "grey88",
+    "between individuals (unexplained)" = "#41AE76",
+    "between ages" = "#2171B5",
+    "between genders" = "#9ECAE1",
+    "between occupations" = "#08306B"
+  )
+
+  plot_data <- partitioning |>
     # set the factor order for partition to how we want to plot it
     mutate(
       partition = factor(partition,
@@ -280,7 +376,7 @@ make_barplot <- function(partitioning) {
     ) |>
     # for labels
     mutate(
-      text_percent = scales::label_percent()(proportion),
+      text_percent = format_percent_label(proportion),
       text_position = rev(cumsum(rev(proportion))) - proportion / 2
     ) |>
     ungroup() |>
@@ -288,28 +384,87 @@ make_barplot <- function(partitioning) {
     rename(
       `Variance explained` = proportion,
       Component = partition
-    ) |>
-    ggplot(
+    )
+
+  # split the labels: large slices are labelled inside the bar; small slices
+  # that would overlap are labelled outside with a leader line (coloured by
+  # component, so which label belongs to which slice is unambiguous)
+  labels_inside <- plot_data |>
+    filter(`Variance explained` >= label_threshold)
+  labels_outside <- plot_data |>
+    filter(`Variance explained` < label_threshold)
+  # nudge outside labels away from the bars: left for the first study, right for
+  # the rest
+  n_studies <- length(unique(plot_data$Study))
+  # sit the labels tight against the outer edge of each bar: nudge just far
+  # enough to clear the bar
+  outside_nudge <- ifelse(
+    as.integer(factor(labels_outside$Study)) <= n_studies / 2,
+    -0.5,
+    0.5
+  )
+  # align labels to the bar edge: the first (left-hand) study's labels are
+  # right-aligned (right edge against the bar, text into the margin), the rest
+  # left-aligned (left edge against the bar)
+  outside_hjust <- ifelse(outside_nudge < 0, 1, 0)
+
+  p <- ggplot(
+      plot_data,
       aes(
         x = Study,
         y = `Variance explained`,
         fill = Component
       )
-    ) + 
+    ) +
     geom_bar(
       stat = "identity"
     ) +
     geom_text(
+      data = labels_inside,
       aes(
         label = text_percent,
         y = text_position
-      )
+      ),
+      size = 4
     ) +
     scale_y_continuous(
-      labels = scales::label_percent()
+      labels = scales::label_percent(accuracy = 1)
     ) +
-    scale_fill_manual(values = colour_palette) +
+    # drop = FALSE keeps all components in the scale (and hence the legend) even
+    # when a panel lacks some, so legends can be combined across panels
+    scale_fill_manual(values = colour_palette, drop = drop) +
+    # matched colour scale for the leader-line labels (no separate legend)
+    scale_colour_manual(values = colour_palette, guide = "none") +
+    xlab(NULL) +
     theme_minimal()
+
+  # only add the leader-line layer (and the extra horizontal room it needs) when
+  # there are small slices to label this way
+  if (nrow(labels_outside) > 0) {
+    p <- p +
+      ggrepel::geom_text_repel(
+        data = labels_outside,
+        aes(
+          label = text_percent,
+          y = text_position,
+          colour = Component
+        ),
+        nudge_x = outside_nudge,
+        direction = "y",
+        hjust = outside_hjust,
+        size = 4,
+        min.segment.length = 0,
+        segment.colour = "black",
+        segment.size = 0.25,
+        box.padding = 0.1,
+        show.legend = FALSE,
+        seed = 2026
+      ) +
+      # just enough horizontal room for the label text to sit beside the bars
+      scale_x_discrete(expand = expansion(add = 1))
+  }
+
+  p
 }
 
 # load the various French Connection datasets
@@ -604,11 +759,7 @@ bin_mean_activity <- function(lower, upper, sigma) {
 # activity level per bin
 quantile2_classes_mean <- function(sigma,
                                    n_classes,
-                                   alpha = 1e-5) {
-  
-  # upper limit for integration
-  max_quantile <- 1 - alpha
-  # max_activity <- qlnorm(max_quantile, meanlog = 0, sdlog = sigma)
+                                   max_quantile = 1 - 1e-5) {
   
   # define quantiles and get lower and upper bounds of the bins
   probs <- seq(0, max_quantile, length.out = n_classes + 1)
@@ -1136,9 +1287,230 @@ autoplot_contact_matrix <- function(contact_matrix, palette = 1) {
     theme(
       axis.text = element_text(
         size = 6,
-        angle = 45, 
+        angle = 45,
         hjust = 1
       )
     )
-    
+
+}
+
+# Run the downstream "final analysis" of analysis 3 (the two-stage method) on a
+# participant-level contact dataset, returning the quantities we want bootstrap
+# intervals on: the residual heterogeneity sigma, the two R0s, and the overall
+# and by-age final sizes for the three scenarios (age matrix, age matrix
+# rescaled to the age/activity R0, and age/activity matrix). This encapsulates
+# the non-illustrative part of R/analysis_3_real_world_application.qmd so it can
+# be re-run on bootstrap resamples. `contact_data` must have columns age_from,
+# age_to, setting, contacts and part_id (as produced by process_fc_data_conmat()
+# after renaming). All other arguments are held fixed across bootstraps, since
+# they are modelling choices rather than survey data.
+fc_final_size_pipeline <- function(contact_data,
+                                   population,
+                                   beta = 0.1,
+                                   alpha = 0.5,
+                                   epsilon = 0.5,
+                                   n_activity_bins = 10,
+                                   max_age = 90) {
+
+  # --- step a: age-structured contact model (aggregated across participants) --
+  contact_data_summarised <- contact_data |>
+    group_by(age_from, age_to, setting) |>
+    summarise(contacts = sum(contacts),
+              participants = n(),
+              .groups = "drop")
+
+  model_aggregated <- fit_single_contact_model(
+    contact_data = contact_data_summarised,
+    population = population
+  )
+
+  # 5-year age matrix up to max_age, and the population fraction in each bin
+  age_breaks <- seq(0, max_age, by = 5)
+  age_contact_pred <- predict_contacts(model_aggregated,
+                                       population,
+                                       age_breaks = age_breaks)
+  age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
+  pop_bin <- population |>
+    filter(lower.age.limit < max_age) |>
+    pull(population)
+  age_fractions <- pop_bin / sum(pop_bin)
+
+  # --- step b: residual between-participant SD (sigma) via a Poisson GLMM ------
+  # predict per-year contacts to use as the model offset
+  year_range <- range(c(contact_data$age_from, contact_data$age_to),
+                      na.rm = TRUE)
+  age_breaks_years <- seq(year_range[1], year_range[2] + 1, by = 1)
+  year_age_group_lookup <- tibble(age = age_breaks_years) |>
+    mutate(age_group = sprintf("[%s,%s)", age, age + 1))
+
+  age_contact_pred_years <- model_aggregated |>
+    predict_contacts(population, age_breaks = age_breaks_years) |>
+    left_join(year_age_group_lookup, by = c(age_group_from = "age_group")) |>
+    rename(age_from = age) |>
+    left_join(year_age_group_lookup, by = c(age_group_to = "age_group")) |>
+    rename(age_to = age, predicted_contacts = contacts) |>
+    select(age_from, age_to, predicted_contacts)
+
+  contact_data_modelling <- contact_data |>
+    left_join(age_contact_pred_years, by = c("age_from", "age_to")) |>
+    filter(age_from <= max_age, age_to <= max_age)
+
+  # nAGQ = 0 for numerical robustness (see the qmd for the rationale)
+  model_twostage <- lme4::glmer(
+    contacts ~ offset(log(predicted_contacts)) + (1 | part_id),
+    family = stats::poisson,
+    data = contact_data_modelling,
+    nAGQ = 0
+  )
+
+  sigma <- model_twostage |>
+    summary() |>
+    extracting("varcor") |>
+    as_tibble() |>
+    filter(grp == "part_id") |>
+    pull(sdcor)
+
+  # --- activity-structured matrix and combined age/activity matrix ------------
+  activity_matrix <- make_activity_matrix(n_activity_bins = n_activity_bins,
+                                          sigma = sigma,
+                                          alpha = alpha,
+                                          epsilon = epsilon)
+  activity_fractions <- attr(activity_matrix, "activity_bins")$fraction
+
+  age_activity_matrix <- tile_matrices(age_matrix, activity_matrix)
+  age_activity_fractions <- tile_fractions(age_fractions, activity_fractions)
+
+  # --- R0s --------------------------------------------------------------------
+  R0_age <- get_eigenval(age_matrix * beta)
+  R0_age_activity <- get_eigenval(age_activity_matrix * beta)
+
+  # --- final sizes for the three scenarios ------------------------------------
+  n_age <- length(age_fractions)
+  n_age_activity <- length(age_activity_fractions)
+  dummy_age <- as.matrix(rep(1, n_age))
+  dummy_age_activity <- as.matrix(rep(1, n_age_activity))
+
+  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
+  # of final_size)
+  age_matrix_scaled <- age_matrix / get_eigenval(age_matrix * age_fractions)
+  age_activity_matrix_scaled <- age_activity_matrix /
+    get_eigenval(age_activity_matrix * age_activity_fractions)
+
+  size_age <- final_size(r0 = R0_age,
+                         contact_matrix = age_matrix_scaled,
+                         demography_vector = age_fractions,
+                         susceptibility = dummy_age,
+                         p_susceptibility = dummy_age)
+
+  size_age_scaled <- final_size(r0 = R0_age_activity,
+                                contact_matrix = age_matrix_scaled,
+                                demography_vector = age_fractions,
+                                susceptibility = dummy_age,
+                                p_susceptibility = dummy_age)
+
+  size_age_activity <- final_size(r0 = R0_age_activity,
+                                  contact_matrix = age_activity_matrix_scaled,
+                                  demography_vector = age_activity_fractions,
+                                  susceptibility = dummy_age_activity,
+                                  p_susceptibility = dummy_age_activity)
+
+  # collapse the age/activity final sizes down to age groups
+  size_age_activity_by_age <- size_age_activity |>
+    mutate(demo_grp = str_split_i(demo_grp, "-", 1)) |>
+    group_by(demo_grp) |>
+    summarise(p_infected = sum(p_infected * activity_fractions),
+              .groups = "drop")
+
+  # overall (population-weighted) final sizes
+  overall <- c(
+    age          = sum(size_age$p_infected * age_fractions),
+    age_scaled   = sum(size_age_scaled$p_infected * age_fractions),
+    age_activity = sum(size_age_activity$p_infected * age_activity_fractions)
+  )
+
+  # tidy by-age final sizes for the three scenarios, with numeric bin edges
+  parse_bins <- function(df) {
+    df |>
+      mutate(
+        age_lower = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 2]),
+        age_upper = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 3])
+      ) |>
+      select(age_lower, age_upper, p_infected)
+  }
+
+  by_age <- bind_rows(
+    age          = parse_bins(size_age),
+    age_scaled   = parse_bins(size_age_scaled),
+    age_activity = parse_bins(size_age_activity_by_age),
+    .id = "scenario"
+  ) |>
+    arrange(scenario, age_lower)
+
+  list(
+    sigma = sigma,
+    R0_age = R0_age,
+    R0_age_activity = R0_age_activity,
+    overall = overall,
+    by_age = by_age
+  )
+}
+
+# Draw a cluster (participant-level) bootstrap resample from a participant-level
+# contact dataset: sample the participants with replacement and give each drawn
+# participant a fresh unique part_id, so that a participant drawn more than once
+# is treated as distinct individuals in the (1 | part_id) random effect (rather
+# than as one participant with repeated observations, which would bias sigma
+# downward). `canonical_ids` fixes the participant ordering so the returned
+# membership indices are comparable across resamples (needed for a later BCa
+# acceleration term via jackknife-after-bootstrap). Returns the resampled data
+# and the integer indices (into canonical_ids) of the drawn participants.
+resample_participants <- function(contact_data, canonical_ids) {
+  n <- length(canonical_ids)
+  drawn_idx <- sample.int(n, size = n, replace = TRUE)
+  key <- tibble(
+    new_id = paste0("boot", seq_len(n)),
+    part_id = canonical_ids[drawn_idx]
+  )
+  resampled <- key |>
+    left_join(contact_data, by = "part_id", relationship = "many-to-many") |>
+    mutate(part_id = new_id) |>
+    select(-new_id)
+  list(data = resampled, membership = drawn_idx)
+}
+
+# Bootstrap confidence interval for a scalar quantity, returning both the plain
+# percentile interval and the bias-corrected ("BC") interval. `theta_star` is
+# the vector of bootstrap replicate estimates and `theta_hat` the point estimate
+# from the full data. The BC interval shifts the percentiles to correct for any
+# median bias between theta_hat and the bootstrap distribution, via the
+# bias-correction constant z0 = Phi^-1(fraction of replicates below theta_hat).
+# The acceleration term of a full BCa interval is set to zero here (see the
+# analysis-3 qmd for why it is deferred); z0 is returned so the size of the bias
+# correction can be inspected. Following Efron & Tibshirani (1993).
+bc_ci <- function(theta_star, theta_hat, level = 0.95) {
+  theta_star <- theta_star[is.finite(theta_star)]
+  n_star <- length(theta_star)
+  a_tail <- (1 - level) / 2
+  probs <- c(a_tail, 1 - a_tail)
+
+  # plain percentile interval
+  pct <- quantile(theta_star, probs, names = FALSE, type = 7)
+
+  # bias correction: z0 from the fraction of replicates below the point estimate
+  prop_below <- mean(theta_star < theta_hat)
+  # guard degenerate proportions (0 or 1 would give an infinite z0)
+  prop_below <- min(max(prop_below, 1 / (2 * n_star)), 1 - 1 / (2 * n_star))
+  z0 <- qnorm(prop_below)
+
+  # adjusted percentiles (acceleration a = 0)
+  adj_probs <- pnorm(2 * z0 + qnorm(probs))
+  bc <- quantile(theta_star, adj_probs, names = FALSE, type = 7)
+
+  tibble(
+    estimate = theta_hat,
+    pct_lower = pct[1], pct_upper = pct[2],
+    bc_lower = bc[1], bc_upper = bc[2],
+    z0 = z0,
+    n_boot = n_star
+  )
 }

@@ -1,5 +1,7 @@
 # Visualise the quadrature rules
 library(tidyverse)
+source("R/packages.R")
+source("R/functions.R")
 
 sigma <- 0.4
 n_int <- 7

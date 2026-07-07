@@ -6,43 +6,119 @@ editor: visual
 
 # Comparing alternative binning methods for summarising the activity level distribution
 
-The computational efficiency of our proposed method relies on the ability to represent the population distribution of activity levels in a comparatively low number of bins. Specifically, we aim to rapidly converge on the true eigenvalue for a population, as the number of bins increases.
+The computational efficiency of our proposed method relies on the ability to represent the population distribution of activity levels in a comparatively low number of bins. Specifically, we aim to rapidly converge on the true eigenvalue for a population, as the number of bins increases. We find that defining bin sizes and activity levels according to a Gaussian quadrature scheme achieves a good level of convergence, and outperforms using evenly-sized bins and setting the bin activity level to the bin mean.
 
-### Methods
+Here we illustrate the differences between these two alternative binning methods, both visually and in terms of representing the mean and variance of the distribution, and then demonstrate that the Gaussian quadrature scheme converges on the true eigenvalue considerably more quickly than the evenly-sized bins approach.
 
-This analysis compares a number of alternative methods:
+The two binning methods we consider are defined as follows
 
 #### Quantiles with mean activity
-Define bins by evenly-spaced quantiles and approximate the mean activity levels in each bin
+
+Define bins of equal population size by defining evenly-spaced quantiles of the distribution over activity levels (up to some maximum quantile) and set the activity level for each bin to its mean, computed by numerical integration via one dimensional adaptive quadrature over the activity range of the bin.
 
 #### Gaussian quadrature scheme
-Define bins according to the points of a Guassian quadrature scheme, with poulation fractions given by the normalised weights.
 
-#### Evenly-sized bins
-Defining bins of even size (i.e. range of activity levels between the upper and lower bound of the bin) up to the 99.9 percentile of the distribution, approximating the mean activity level (by numerical integration) and computing population fraction in each bin.
+Define bins of unequal size according to the nodes of a Guassian quadrature scheme, with activity levels given by the node locations, and population fractions given by the normalised weights.
 
-#### Hybrid scheme of quantiles and evenly-sized bins
-Defining around half the bins to be equal quantiles, up to the 90 percentile, and then the remaining bins to be evenly sized, from the 90 to the 99.9 percentiles, approximating the mean activity level (by numerical integration) and computing population fraction in each bin.
-
-### Evaluation
-
-```{r}
+```{r echo = FALSE}
 #| message: false
 #| warning: false
 source("R/packages.R")
 source("R/functions.R")
 ```
 
+#### Illustrating the binning schemes
+
+First, we illustrate how two of the binning schemes place their bins relative to the target distribution. For both schemes we use 7 bins and set \$\\sigma = 0.4\$. The top panel shows the target lognormal density of activity levels, corresponding to our model of activity. The middle and lower panels show the bin activity levels (points) and population fractions (vertical stems) for the quantile-mean and Gaussian quadrature schemes respectively.
+
+```{r}
+#| message: false
+#| warning: false
+sigma <- 0.4
+n_int <- 7
+
+# quantile mean and Gaussian quadrature classes
+quantile_classes <- quantile2_classes_mean(sigma = sigma,
+                                            n_classes = n_int)
+gq_classes <- gaussquad_classes(sigma = sigma,
+                                n_classes = n_int)
+
+# common x-axis range
+xmax <- max(
+  qlnorm(0.99, 0, sigma),
+  max(quantile_classes$activity),
+  max(gq_classes$activity)
+)
+
+# top panel: target distribution
+p_target <- ggplot() +
+  geom_function(
+    fun = dlnorm,
+    args = list(meanlog = 0, sdlog = sigma)
+  ) +
+  xlim(0, xmax) +
+  labs(
+    title = "Target distribution",
+    x = "activity level (v)",
+    y = "p(v)"
+  ) +
+  theme_minimal()
+
+# middle panel: quantile mean classes
+p_quantile <- ggplot(quantile_classes,
+                     aes(x = activity, y = fraction)) +
+  geom_segment(
+    aes(xend = activity, yend = 0)
+  ) +
+  geom_point(size = 2) +
+  xlim(0, xmax) +
+  ylim(0, max(quantile_classes$fraction) * 1.1) +
+  labs(
+    title = "Quantile mean",
+    x = "activity level (v)",
+    y = "population fraction"
+  ) +
+  theme_minimal()
+
+# lower panel: Gaussian quadrature classes
+p_gq <- ggplot(gq_classes,
+              aes(x = activity, y = fraction)) +
+  geom_segment(
+    aes(xend = activity, yend = 0)
+  ) +
+  geom_point(size = 2) +
+  xlim(0, xmax) +
+  ylim(0, max(gq_classes$fraction) * 1.1) +
+  labs(
+    title = "Gaussian quadrature",
+    x = "activity level (v)",
+    y = "population fraction"
+  ) +
+  theme_minimal()
+
+binning_illustration <- p_target / p_quantile / p_gq
+
+ggsave("figures/binning_illustration.png",
+       plot = binning_illustration,
+       bg = "white",
+       scale = 1,
+       width = 6,
+       height = 8)
+```
+
+![](../figures/binning_illustration.png)
+
+The Gaussian quadrature scheme is able to place bins much further into the two tails of the distribution than the quantile mean scheme. Whilst few individuals would have activity levels in these tails, those that do (particularly at the upper tail) contribute significantly to the population eigenvalue.
+
 #### Approximating the distribution
 
-First we assess the ability of the binning scheme to approximate the first two moments of the distribution, by computing numerical approximations to these parameters based on the binning schemes, and comparing them to the truth, for known values of sigma.
+Next we assess the ability of each binning scheme to approximate the first two moments of the true distribution, by computing numerical approximations to these mean and variance of the distribution over activity levels using each of the binning schemes as a quadrature scheme. We vary the number of bins or each scheme and compare the approximations to the mean and variance against the truth, for three values of sigma.
 
 ```{r}
 estimates <- expand_grid(
   n_classes = 2:20,
   sigma = c(0.5, 1, 2),
   method = c("truth",
-             "quantile_mean",
              "gaussquad",
              "quantile2_mean")
 ) |>
@@ -60,18 +136,63 @@ estimates <- expand_grid(
                                  n_classes,
                                  method = method)
     )
+  ) |>
+  ungroup() |>
+  # relabel methods for display (quantile2_mean is the deterministic
+  # numerical-integration version of the quantile mean method)
+  mutate(
+    method = recode(
+      method,
+      quantile2_mean = "quantile mean",
+      gaussquad = "Gaussian quadrature"
+    )
   )
 
 ```
 
 Plot these
+
 ```{r}
-estimates |>
+# colour used for the Gaussian quadrature line (first of the two default hues)
+gq_colour <- scales::hue_pal()(2)[1]
+
+moment_long <- estimates |>
   pivot_longer(
     cols = c("mean", "sd"),
     values_to = "estimate",
     names_to = "moment"
+  )
+
+# smallest number of bins for which the Gaussian quadrature estimate is within
+# 1% of the true value, for each moment and value of sigma
+moment_threshold <- moment_long |>
+  filter(method == "Gaussian quadrature") |>
+  left_join(
+    moment_long |>
+      filter(method == "truth") |>
+      select(n_classes, sigma, moment, true = estimate),
+    by = c("n_classes", "sigma", "moment")
   ) |>
+  filter(abs(estimate - true) / true < 0.01) |>
+  group_by(moment, sigma) |>
+  summarise(
+    bins_1pct = min(n_classes),
+    .groups = "drop"
+  ) |>
+  mutate(
+    sigma = paste("sigma: ", sigma)
+  )
+
+# the true value of each moment, for each sigma
+moment_truth <- moment_long |>
+  filter(method == "truth") |>
+  distinct(moment, sigma, true = estimate) |>
+  mutate(
+    sigma = paste("sigma: ", sigma)
+  )
+
+moment_convergence <- moment_long |>
+  filter(method != "truth") |>
   mutate(
     sigma = paste("sigma: ", sigma)
   ) |>
@@ -82,52 +203,143 @@ estimates |>
       colour = method,
     )
   ) +
-  geom_line() +
+  geom_hline(
+    aes(yintercept = true),
+    data = moment_truth,
+    linetype = 2,
+    linewidth = 0.8
+  ) +
+  geom_text(
+    aes(
+      y = true,
+      label = "true value"
+    ),
+    data = moment_truth,
+    x = -Inf,
+    hjust = -0.05,
+    vjust = -0.6,
+    size = 3,
+    colour = "black",
+    inherit.aes = FALSE
+  ) +
+  geom_vline(
+    aes(xintercept = bins_1pct),
+    data = moment_threshold,
+    linetype = 3,
+    linewidth = 0.8,
+    colour = gq_colour
+  ) +
+  geom_text(
+    aes(
+      x = bins_1pct,
+      label = paste0(bins_1pct, " bins, <1% error")
+    ),
+    data = moment_threshold,
+    y = -Inf,
+    hjust = -0.1,
+    vjust = -0.8,
+    size = 3,
+    colour = gq_colour,
+    inherit.aes = FALSE
+  ) +
+  xlab("number of bins") +
+  geom_line(
+    linewidth = 1
+  ) +
   facet_wrap(
     moment ~ sigma,
     scales = "free_y"
   ) +
-  theme_minimal()
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.12))
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave("figures/binning_moment_convergence.png",
+       plot = moment_convergence,
+       bg = "white",
+       scale = 1,
+       width = 8,
+       height = 5)
 
 ```
-Perhaps unsurprisingly, Gaussian quadrature converges rapidly and consistently at this task. K-means appears to converge rapidly, but is quite stochastic (due to the random sampling used to fit the clustering model), with the other methods generally converging more slowly, especially for the standard deviation. The quantile median consistently understimates the standard deviation even with 20 bins.
+
+![](../figures/binning_moment_convergence.png)
+
+The quantile mean scheme approximates the mean well regardless of the number of bins, but converges very slowly to the true estimate of the variance, as the number of bins increases. By contrast, the Gaussian quadrature scheme converges rapidly and consistently to both the mean and standard deviation at this task. Even with a very large sigma (\$\\sigma=2\$ corresponds to a standard deviation of over a 50-fold difference in contact rates compared with log-mean), the Gaussian quadrature scheme is able to accurately approximate the standard deviation (to within 1% of the true value) with only 11 bins. By comparison, the quantile mean scheme significantly understimates the standard deviation (by a factor of more than 2) even with double the number of bins.
 
 #### Approximating the eigenvalue
 
-While the above analysis is a fairly straightforward assessment of the ability of these schemes to integrate the distribution, the main task is to accurately estimate the eigenvalue of matrix constructed from this distribution. Given the strong influence of the upper tail of the activity distribution on the eigenvalue, the results of this analysis are likely to be quite different.
-
-Approximate the eigenvalue for different numbers of bins for the different methods.
+Finally, we asses the ability of each binning scheme to accurately estimate the eigenvalue of an activity-only contact matrix constructed from this distribution, again for the same three values of sigma. Here we display the true eigenvalue as a horizontal dashed line.
 
 ```{r}
 plan(multisession, workers = 8)
-sigma <- 1
 
 eigenvalue_convergence <- expand_grid(
-  bins = seq(2, 100, by = 1),
-  method = c("quantile_mean",
-             "gaussquad",
+  bins = seq(2, 20, by = 1),
+  sigma = c(0.5, 1, 2),
+  method = c("gaussquad",
              "quantile2_mean")
 ) |>
   mutate(
-    eigenvalue = furrr::future_map2(
-      bins,
-      method,
-      ~ map_to_eigen(n_classes = .x,
-                     sigma = sigma,
-                     method = .y,
-                     assort = 0),
+    eigenvalue = furrr::future_pmap(
+      list(bins, sigma, method),
+      \(bins, sigma, method) map_to_eigen(n_classes = bins,
+                                          sigma = sigma,
+                                          method = method,
+                                          assort = 0),
       .options = furrr_options(seed = TRUE)
+    )
+  ) |>
+  # relabel methods for display (quantile2_mean is the deterministic
+  # numerical-integration version of the quantile mean method)
+  mutate(
+    method = recode(
+      method,
+      quantile2_mean = "quantile mean",
+      gaussquad = "Gaussian quadrature"
     )
   )
 ```
 
-Plot convergence
 ```{r}
-# this is the true eigenvalue for the proportional mixing assumption
-true_eigenval <- exp(1.5 * sigma ^ 2)
-eigenvalue_convergence |>
+# the true eigenvalue for the proportional mixing assumption, for each sigma
+true_eigenval <- tibble(
+  sigma = c(0.5, 1, 2)
+) |>
+  mutate(
+    true = exp(1.5 * sigma ^ 2)
+  )
+
+eigenvalue_long <- eigenvalue_convergence |>
   unnest(
     eigenvalue
+  ) |>
+  left_join(
+    true_eigenval,
+    by = "sigma"
+  )
+
+# smallest number of bins for which the Gaussian quadrature estimate is
+# within 1% of the true eigenvalue, for each sigma
+convergence_threshold <- eigenvalue_long |>
+  filter(
+    method == "Gaussian quadrature",
+    abs(eigenvalue - true) / true < 0.01
+  ) |>
+  group_by(sigma) |>
+  summarise(
+    bins_1pct = min(bins),
+    .groups = "drop"
+  ) |>
+  mutate(
+    sigma = paste("sigma: ", sigma)
+  )
+
+eigenvalue_convergence_plot <- eigenvalue_long |>
+  mutate(
+    sigma = paste("sigma: ", sigma)
   ) |>
   ggplot(
     aes(
@@ -136,97 +348,69 @@ eigenvalue_convergence |>
       group = method,
       colour = method)
   ) +
-  geom_abline(
-    intercept = true_eigenval,
-    slope = 0,
-    linetype = 2
-  ) +
-  geom_line() +
-  xlab("Number of classes") +
-  theme_minimal()
-```
-
-#### Monte Carlo "true" eigenvalue reference
-
-To complement the analytical convergence curves above, we add a reference value computed directly from a large Monte Carlo sample (translation of `Matlab/matrix_bins.m`). We draw N = 10,000 individuals from a lognormal(0, sigma = 1) distribution, then compute the dominant eigenvalue of the full proportionate mixing matrix.
-
-In MATLAB this required forming and diagonalising a 10,000 × 10,000 matrix (~800 MB). In R we exploit the rank-1 structure of the proportionate mixing matrix: for `M = a aᵀ / sum(a)`, the eigenvector is `a` itself and the dominant eigenvalue is `sum(a²) / sum(a)`. This closed form is exact and requires no matrix materialisation.
-
-```{r}
-set.seed(2024)
-N <- 1e4
-
-activity_mc <- rlnorm(N, meanlog = 0, sdlog = sigma)
-
-# "True" MC eigenvalue: closed-form dominant eigenvalue of the rank-1
-# proportionate mixing matrix M = a a^T / sum(a)
-lambda_mc_true <- sum(activity_mc ^ 2) / sum(activity_mc)
-
-# Population-level analytic value (the MC estimate converges to this as N -> Inf)
-lambda_analytic <- exp(1.5 * sigma ^ 2)
-```
-
-Now compute the eigenvalue of binned approximations using quantile bins drawn from the MC sample, matching the MATLAB approach in `matrix_bins.m`.
-
-```{r}
-n_bins_range <- c(2:100, seq(200, 2000, by = 100))
-
-eigenvalue_convergence_mc <- tibble(n_bins = n_bins_range) |>
-  rowwise() |>
-  mutate(
-    eigenvalue = {
-      probs <- seq(0, 1, length.out = n_bins + 1)
-      bin_edges <- quantile(activity_mc, probs = probs)
-      bin_edges[1] <- 0
-
-      bin_means <- vapply(seq_len(n_bins), \(i) {
-        in_bin <- activity_mc > bin_edges[i] & activity_mc <= bin_edges[i + 1]
-        mean(activity_mc[in_bin])
-      }, numeric(1))
-
-      # Dominant eigenvalue of binned proportionate mixing matrix (rank-1 closed form)
-      sum(bin_means ^ 2) / sum(bin_means)
-    }
-  ) |>
-  ungroup()
-```
-
-Plot eigenvalue convergence with both MC and analytic reference lines.
-
-```{r}
-eigenvalue_convergence_mc |>
-  ggplot(
-    aes(x = n_bins, y = eigenvalue)
-  ) +
-  geom_line() +
-  geom_point(size = 0.5) +
   geom_hline(
-    yintercept = lambda_mc_true,
-    linetype = "dashed",
-    colour = "red"
+    aes(yintercept = true),
+    data = true_eigenval |> mutate(sigma = paste("sigma: ", sigma)),
+    linetype = 2,
+    linewidth = 0.8
   ) +
-  geom_hline(
-    yintercept = lambda_analytic,
-    linetype = "dotted",
-    colour = "blue"
+  geom_text(
+    aes(
+      y = true,
+      label = "true value"
+    ),
+    data = true_eigenval |> mutate(sigma = paste("sigma: ", sigma)),
+    x = -Inf,
+    hjust = -0.05,
+    vjust = -0.6,
+    size = 3,
+    colour = "black",
+    inherit.aes = FALSE
   ) +
-  annotate(
-    "text", x = 200, y = lambda_mc_true * 1.004,
-    label = '"true" MC value', colour = "red", hjust = 0
+  geom_vline(
+    aes(xintercept = bins_1pct),
+    data = convergence_threshold,
+    linetype = 3,
+    linewidth = 0.8,
+    colour = gq_colour
   ) +
-  annotate(
-    "text", x = 200, y = lambda_analytic * 0.997,
-    label = "population analytic", colour = "blue", hjust = 0
+  geom_text(
+    aes(
+      x = bins_1pct,
+      label = paste0(bins_1pct, " bins, <1% error")
+    ),
+    data = convergence_threshold,
+    y = -Inf,
+    hjust = -0.1,
+    vjust = -0.8,
+    size = 3,
+    colour = gq_colour,
+    inherit.aes = FALSE
   ) +
-  scale_x_log10() +
-  labs(
-    x = "number of bins",
-    y = "dominant eigenvalue",
-    title = sprintf(
-      "Eigenvalue convergence with MC-quantile binning (proportionate mixing, N = %d)", N
-    )
+  geom_line(
+    linewidth = 1
   ) +
-  theme_minimal()
+  facet_wrap(
+    ~ sigma,
+    nrow = 1,
+    scales = "free_y"
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.12))
+  ) +
+  xlab("number of bins") +
+  ylab("dominant eigenvalue") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave("figures/binning_eigenvalue_convergence.png",
+       plot = eigenvalue_convergence_plot,
+       bg = "white",
+       scale = 1,
+       width = 9,
+       height = 4)
 ```
 
-The dashed red line is the finite-sample MC reference value; the dotted blue line is the population analytical value `exp(1.5 * sigma²)`. The binned eigenvalue converges to the MC reference, which itself fluctuates around the analytic value due to sampling variance from N = 10,000 draws.
+![](../figures/binning_eigenvalue_convergence.png)
+
+Across all values of \$\\sigma\$ we see that the Gaussian quadrature scheme converges on the true eigenvalue of the activity-only contact matrix far more quickly than the quantile mean. Even with the extreme \$\\sigma=2\$, 12 bins are sufficient to approximate the eigenvalue to within 1%. With \$\\sigma=0.5\$ (roughly matching the France and Hong Kong data), 3 bins are sufficient to achieve the same level of accuracy.
