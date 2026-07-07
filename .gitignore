@@ -7,4 +7,5 @@
 *.asv
 /.quarto/
 tables
+overleaf
 **/*.quarto_ipynb
