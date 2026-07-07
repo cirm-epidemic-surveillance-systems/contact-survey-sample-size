@@ -172,6 +172,9 @@ fc_contact_data_modelling <- fc_contact_data %>%
   filter(
     age_from <= max_age,
     age_to <= max_age
+  ) %>%
+  mutate(
+    obs = factor(row_number())
   )
 ```
 
@@ -187,7 +190,7 @@ Finally, fit a Poisson GLMM and extract the estimate of sigma.
 # is robust to this and gives an effectively identical variance estimate.
 model_twostage <- lme4::glmer(
   contacts ~ offset(log(predicted_contacts)) +
-    (1|part_id),
+    (1|part_id) + (1|obs),
   family = stats::poisson,
   data = fc_contact_data_modelling,
   nAGQ = 0
@@ -352,9 +355,7 @@ alpha <- 0.5
 epsilon <- 0.5
 ```
 
-Next, we compute the discretisation bins of the continuous activity level distribution: the fraction of the population in each bin, and the average activity in the bin. For visulaisation here we use evenly-sized bins, so that the assortative patterns are clearly visible, rather than the contact rates being dominated by the different population fractions in each bin.
-
-<!--# We do this using Gaussian quadrature, since it enables us to approximate the full activity distribution in relatively few bins: -->
+Next, we compute the discretisation bins of the continuous activity level distribution: the fraction of the population in each bin, and the average activity in the bin. For visualisation here we use evenly-sized bins, so that the assortative patterns are clearly visible, rather than the contact rates being dominated by the different population fractions in each bin.
 
 ```{r}
 activity_bins <- quantile2_classes_mean(sigma = sigma_fc_twostage,

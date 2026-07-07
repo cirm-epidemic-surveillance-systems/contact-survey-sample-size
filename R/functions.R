@@ -1353,11 +1353,12 @@ fc_final_size_pipeline <- function(contact_data,
 
   contact_data_modelling <- contact_data |>
     left_join(age_contact_pred_years, by = c("age_from", "age_to")) |>
-    filter(age_from <= max_age, age_to <= max_age)
+    filter(age_from <= max_age, age_to <= max_age) |>
+    mutate(obs = factor(row_number()))
 
   # nAGQ = 0 for numerical robustness (see the qmd for the rationale)
   model_twostage <- lme4::glmer(
-    contacts ~ offset(log(predicted_contacts)) + (1 | part_id),
+    contacts ~ offset(log(predicted_contacts)) + (1 | part_id) + (1|obs),
     family = stats::poisson,
     data = contact_data_modelling,
     nAGQ = 0
