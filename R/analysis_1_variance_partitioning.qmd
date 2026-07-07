@@ -8,14 +8,6 @@ editor: visual
 
 How much variation in contact rates are we missing?
 
-\- Demonstrate from contact surveys with repeat measures that age & occupation do not capture much of the variation between individuals in average contact rates
-
-See variation_partitioning.R for mostly complete code
-
-Move code here
-
-NEED: Publication-quality single-panel figure of variance partitioning for different surveys
-
 #### Analyse partitioning of variation in contact rates (within/between individuals and strata)
 
 Load packages and functions
@@ -25,61 +17,85 @@ Load packages and functions
 #| warning: false
 source("R/packages.R")
 source("R/functions.R")
+
+# set the RNG seed - used by the permutation check below
+set.seed(2026-07-07)
 ```
 
-Load the processed French Connection and Hong Kong data
+Load the processed French Connection and Hong Kong data. We add an observation identifier `obs` (one level per participant/wave/day) so that we can fit an observation-level random effect (see below).
 
 ```{r}
-fc_contact_counts <- process_fc_data_varpart()
-hk_contact_counts <- process_hk_data_varpart()
+fc_contact_counts <- process_fc_data_varpart() |>
+  mutate(obs = factor(row_number()))
+hk_contact_counts <- process_hk_data_varpart() |>
+  mutate(obs = factor(row_number()))
 ```
 
-Analyse this with a random effects model to capture the within-individual variation, the between-individual variation explained by age, and the residual between-individual variation
+We model the daily contact counts as Poisson with a log link (consistent with the other analyses in this repo). The random effects capture the within-individual variation (between observed days), the between-individual variation explained by age, and the residual between-individual variation.
 
-Gaussian random effects model, with only age, and between vs within individual effects
+A Poisson-log GLMM has no residual variance parameter: the day-to-day variation within an individual is otherwise assumed to be exactly Poisson sampling noise. Contact counts are overdispersed, so we add an **observation-level random effect** `(1|obs)` to capture genuine within-individual, extra-Poisson variation. Without it, that overdispersion would inflate the between-individual (`part_id`) variance. We fit with `nAGQ = 0` for numerical robustness, consistent with the two-stage model in analysis 3.
+
+First we fit for the France data.
 
 ```{r}
-fc_model_lmer_none <- lmer(
-  log1p(contacts) ~ (1|part_id),
-  data = fc_contact_counts
+#| message: false
+#| warning: false
+
+fc_model_none <- glmer(
+  contacts ~ (1|part_id) + (1|obs),
+  family = poisson,
+  data = fc_contact_counts,
+  nAGQ = 0
 )
 
-fc_model_lmer_age <- lmer(
-  log1p(contacts) ~ (1|part_age) +
-    (1|part_id),
-  data = fc_contact_counts
+fc_model_age <- glmer(
+  contacts ~ (1|part_age) +
+    (1|part_id) + (1|obs),
+  family = poisson,
+  data = fc_contact_counts,
+  nAGQ = 0
 )
 
 # the same but with gender and occupation (confounded)
-fc_model_lmer_all <- lmer(
-  log1p(contacts) ~ (1|part_age) +
+fc_model_all <- glmer(
+  contacts ~ (1|part_age) +
     (1|part_gender) +
     (1|part_occupation) +
-    (1|part_id),
-  data = fc_contact_counts
+    (1|part_id) + (1|obs),
+  family = poisson,
+  data = fc_contact_counts,
+  nAGQ = 0
 )
 ```
 
 Now for Hong Kong
 
 ```{r}
-hk_model_lmer_none <- lmer(
-  log1p(contacts) ~ (1|part_id),
-  data = hk_contact_counts
+#| message: false
+#| warning: false
+hk_model_none <- glmer(
+  contacts ~ (1|part_id) + (1|obs),
+  family = poisson,
+  data = hk_contact_counts,
+  nAGQ = 0
 )
 
-hk_model_lmer_age <- lmer(
-  log1p(contacts) ~ (1|part_age) +
-    (1|part_id),
-  data = hk_contact_counts
+hk_model_age <- glmer(
+  contacts ~ (1|part_age) +
+    (1|part_id) + (1|obs),
+  family = poisson,
+  data = hk_contact_counts,
+  nAGQ = 0
 )
 
 # the same but with gender (confounded)
-hk_model_lmer_all <- lmer(
-  log1p(contacts) ~ (1|part_age) +
+hk_model_all <- glmer(
+  contacts ~ (1|part_age) +
     (1|part_gender) +
-    (1|part_id),
-  data = hk_contact_counts
+    (1|part_id) + (1|obs),
+  family = poisson,
+  data = hk_contact_counts,
+  nAGQ = 0
 )
 ```
 
@@ -87,20 +103,20 @@ Do variance partitioning on each, combining across studies
 
 ```{r}
 partitioning_none <- bind_rows(
-  France = partition_variance_lmer(fc_model_lmer_none),
-  `Hong Kong` = partition_variance_lmer(hk_model_lmer_none),
+  France = partition_variance_glmer(fc_model_none),
+  `Hong Kong` = partition_variance_glmer(hk_model_none),
   .id = "Study"
 )
 
 partitioning_age <- bind_rows(
-  France = partition_variance_lmer(fc_model_lmer_age),
-  `Hong Kong` = partition_variance_lmer(hk_model_lmer_age),
+  France = partition_variance_glmer(fc_model_age),
+  `Hong Kong` = partition_variance_glmer(hk_model_age),
   .id = "Study"
 )
 
 partitioning_all <- bind_rows(
-  France = partition_variance_lmer(fc_model_lmer_all),
-  `Hong Kong` = partition_variance_lmer(hk_model_lmer_all),
+  France = partition_variance_glmer(fc_model_all),
+  `Hong Kong` = partition_variance_glmer(hk_model_all),
   .id = "Study"
 )
 ```
@@ -117,7 +133,7 @@ barplot_all <- make_barplot(partitioning_all) +
 
 varpart <- barplot_age +
   ggtitle(
-    label = "Partitioning variance in daily (log1p) contact rates"
+    label = "Partitioning variance in daily log contact rates"
   )
 ggsave("figures/varpart_age.png",
        plot = varpart,
@@ -132,15 +148,15 @@ ggsave("figures/varpart_age.png",
 Arrange them in a multipanel figure, for supplemental materials
 
 ```{r}
-varpart_all <- (barplot_none / barplot_age / barplot_all) +
-  plot_annotation(title = "Partitioning variance in daily (log1p) contact rates")
+varpart_all <- (barplot_none + barplot_age + barplot_all) +
+  plot_annotation(title = "Partitioning variance in daily log contact rates")
 
 ggsave("figures/varpart_all.png",
        plot = varpart_all,
        bg = "white",
        scale = 1,
-       width = 6,
-       height = 12)
+       width = 14,
+       height = 5)
 ```
 
 ![](../figures/varpart_all.png)
@@ -148,17 +164,21 @@ ggsave("figures/varpart_all.png",
 Sanity check this analysis by permuting the participant IDs - we would expect the proportion of variance within individuals (not explained by age/individual) to be high if we shuffled the data around between individuals/repeats. So confirm this.
 
 ```{r}
+#| message: false
+#| warning: false
 # sanity check contact variance analysis by permuting the participant IDs
 permute_sim <- function() {
   fc_contact_counts %>%
     mutate(
       contacts = sample(contacts)
     ) %>%
-    lmer(
-      log1p(contacts) ~ (1|part_age) + (1|part_id),
-      data = .
+    glmer(
+      contacts ~ (1|part_age) + (1|part_id) + (1|obs),
+      family = poisson,
+      data = .,
+      nAGQ = 0
     ) %>%
-    partition_variance_lmer() %>%
+    partition_variance_glmer() %>%
     select(-var) %>%
     pivot_wider(
       names_from = "partition",
@@ -166,6 +186,7 @@ permute_sim <- function() {
     )
 }
 
+set.seed(2026-07-07)
 sims_list <- replicate(50,
                        permute_sim(),
                   simplify = FALSE)
@@ -194,73 +215,20 @@ for (i in seq_along(partitions)) {
 }
 ```
 
-Alternatively, model age first, then add estimates as an offset
+Extract the between-individual standard deviation (`part_id`) from the age model. Because the model uses a log link, this is a standard deviation of individual log contact rates. This is comparable to the `sigma` of a lognormal individual activity distribution, as used in the full model. Though note that here we not account for heterogeneity in the contact ages when computing this parameter, so this is not intended as an estimate of `sigma` in that model.
 
 ```{r}
-fc_model_lmer_only_age <- lmer(
-  log1p(contacts) ~ (1|part_age),
-  data = fc_contact_counts
-)
-
-# using tidyverse pipes as R native pipes are cracking the shits at my abuse of infix notation
-age_offset_lookup <- fc_model_lmer_only_age %>%
-  coef %>%
-  `$`(part_age) %>%
-  tibble(
-    part_age = rownames(.),
-    offset = .[, 1]
-  ) %>%
-  select(-`(Intercept)`)
-
-fc_contact_counts_age_est <- fc_contact_counts |>
-  left_join(age_offset_lookup,
-            by = "part_age")
-
-fc_model_lmer_part_given_age <- lmer(
-  log1p(contacts) ~ (1|part_id) + offset(offset),
-  data = fc_contact_counts_age_est
-)
-
-fc_model_lmer_only_age
-# 0.2154 sd age
-# 0.6929 sd other
-fc_model_lmer_part_given_age
-# (of the other)
-# 0.4181 sd participant
-# 0.5478 participant
-```
-
-Compute variance partitions
-
-```{r}
-age_frac <- (0.2154^2) / (0.2154^2 + 0.6929^2)
-non_age_frac <- 1 - age_frac
-
-part_frac_of_other <- (0.4181^2) / (0.4181^2 + 0.5478^2)
-non_part_frac_of_other <- 1 - part_frac_of_other
-
-part_frac <- non_age_frac * part_frac_of_other
-within_frac <- non_age_frac * non_part_frac_of_other
-
-within_frac # 58%
-part_frac # 33%
-age_frac # 9%
-```
-
-Extract the sigma for these
-```{r}
-fc_sigma <- fc_model_lmer_age |>
+extract_part_id_sd <- function(model) {
+  model |>
     summary() |>
     extracting("varcor") |>
     as_tibble() |>
     filter(grp == "part_id") |>
-  select(sdcor)
-hk_sigma <- hk_model_lmer_age |>
-    summary() |>
-    extracting("varcor") |>
-    as_tibble() |>
-    filter(grp == "part_id") |>
-  select(sdcor)
+    pull(sdcor)
+}
+
+fc_sigma <- extract_part_id_sd(fc_model_age)
+hk_sigma <- extract_part_id_sd(hk_model_age)
 
 fc_sigma
 hk_sigma
