@@ -6,5 +6,5 @@
 *.pdf
 *.asv
 /.quarto/
-
+tables
 **/*.quarto_ipynb

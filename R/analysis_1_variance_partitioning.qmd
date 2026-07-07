@@ -164,7 +164,72 @@ ggsave("figures/varpart_all.png",
        height = 6)
 ```
 
-![](../figures/varpart_all.png)
+Tabulate the same percentages (formatted as in the figure) for each model and study.
+
+```{r}
+component_levels <- c(
+  "within individuals",
+  "between individuals (unexplained)",
+  "between ages",
+  "between genders",
+  "between occupations"
+)
+model_levels <- c(
+  "No demographic variables",
+  "Only age variable",
+  "All demographic variables"
+)
+
+partitioning_all_models <- bind_rows(
+  `No demographic variables` = partitioning_none,
+  `Only age variable` = partitioning_age,
+  `All demographic variables` = partitioning_all,
+  .id = "Model"
+)
+
+# one row per study/model, one column per component, cells as formatted
+# percentages (a dash where a component is not in the model)
+partition_table <- function(data, levels) {
+  data |>
+    mutate(
+      Model = factor(Model, levels = model_levels),
+      partition = factor(partition, levels = levels),
+      percent = format_percent_label_1dp(proportion)
+    ) |>
+    select(Study, Model, partition, percent) |>
+    pivot_wider(
+      names_from = partition,
+      values_from = percent,
+      names_expand = TRUE
+    ) |>
+    arrange(Study, Model) |>
+    mutate(across(where(is.character), ~ replace_na(.x, "--")))
+}
+
+# write a human-readable text (markdown) version to tables/, and display it
+write_table_txt <- function(tab, caption, path) {
+  writeLines(c(caption, "", knitr::kable(tab, format = "pipe")), path)
+}
+
+caption_full <- "Variance in daily log contact rates (%), partitioned by component, for each model and study."
+partition_full <- partition_table(partitioning_all_models, component_levels)
+write_table_txt(partition_full, caption_full, "tables/variance_partition.txt")
+knitr::kable(partition_full, caption = caption_full)
+```
+
+The same partition after excluding the within-individual component, with the remaining (between-individual) components renormalised to sum to 100%.
+
+```{r}
+caption_between <- "Between-individual variance (%), partitioned among the age/gender/occupation and residual components (i.e. excluding within-individual variance and renormalising to 100%), for each model and study."
+partition_between <- partitioning_all_models |>
+  filter(partition != "within individuals") |>
+  group_by(Study, Model) |>
+  mutate(proportion = proportion / sum(proportion)) |>
+  ungroup() |>
+  partition_table(component_levels[-1])
+write_table_txt(partition_between, caption_between, "tables/variance_partition_excluding_within.txt")
+knitr::kable(partition_between, caption = caption_between)
+```
 
 Sanity check this analysis by permuting the participant IDs - we would expect the proportion of variance within individuals (not explained by age/individual) to be high if we shuffled the data around between individuals/repeats. So confirm this.
 

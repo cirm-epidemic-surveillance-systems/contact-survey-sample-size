@@ -334,6 +334,13 @@ format_percent_label <- function(proportion) {
   )
 }
 
+# as format_percent_label() but always to one decimal place (used in the tables,
+# where there is room for the extra precision); still "<0.1%" below 0.05%
+format_percent_label_1dp <- function(proportion) {
+  pct <- 100 * proportion
+  ifelse(round(pct, 1) >= 0.1, sprintf("%.1f%%", pct), "<0.1%")
+}
+
 make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
 
   # semantic colour palette:
