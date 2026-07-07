@@ -8,17 +8,13 @@ editor: visual
 
 Computing and visualising the impact of the activity-heterogeneous analysis on analysis of datasets
 
--   Using conmat with an additional random effects term, estimate the activity-level distribution from HK & French data, and produce augmented (age and activity) contact matrices.
+-   Using conmat and a GLMM in a two-stage process to estimate the activity-level distribution from France data, and produce augmented (age and activity) contact matrices.
 
 -   Using these, compute R0 under the augmented and non-augmented matrices (expect augmented to be higher)
 
 -   Using these matrices, compute final size (using the `finalsize` package) for: the non-augmented matrix, the augmented matrix, and the non-augmented matrix rescaled to have the same R0 as the augmented matrix
 
 -   Extend these analyses to do a bootstrap analysis to get uncertainty in these estimates
-
-see Nick's conmat branch: `heterogeneous-augmentation` for partly complete implementation
-
-NEED: Finish applying the heterogeneous-augmentation conmat analysis, and make figures
 
 Load packages and functions
 
@@ -461,12 +457,13 @@ Finally, combine the three illustrative matrices into a single three-panel figur
 illustrative_matrices_plot <- age_mat_plot +
   activity_mat_plot +
   age_activity_mat_plot +
-  plot_layout(nrow = 1)
+  plot_layout(nrow = 1) +
+  plot_annotation(tag_levels = "A")
 ggsave("figures/illustrative_contact_matrices.png",
        plot = illustrative_matrices_plot,
        bg = "white",
-       width = 15,
-       height = 5,
+       width = 12,
+       height = 4,
        dpi = 300)
 illustrative_matrices_plot
 ```
@@ -610,6 +607,18 @@ scenario_labels <- c(
   age_scaled   = sprintf("age matrix, rescaled (R0 = %.2f)", R0_age_activity)
 )
 
+# scenario colours matching the illustrative contact matrices: the two age
+# matrices share the Blues palette (palette 1) used for the age-structured panel
+# - darker for the original age matrix, lighter for the rescaled one - and the
+# age/activity matrix takes the orange (Oranges, palette 7) of its panel
+scenario_colours <- c(
+  age          = "#08519C",  # darker blue  (original age matrix)
+  age_scaled   = "#6BAED6",  # lighter blue (rescaled age matrix)
+  age_activity = "#E6550D"   # orange       (age/activity matrix)
+)
+# re-key by the display labels, which are the factor levels used in the plot
+names(scenario_colours) <- scenario_labels[names(scenario_colours)]
+
 # combine the three scenarios into one tibble, and parse the lower/upper edges
 # of each age bin from the group label (e.g. "[0,5)") so the bins can be placed
 # numerically on the x axis
@@ -674,8 +683,8 @@ final_size_plot <- ggplot() +
     direction = "hv",
     linewidth = 0.8
   ) +
-  scale_colour_brewer(palette = "Dark2") +
-  scale_fill_brewer(palette = "Dark2") +
+  scale_colour_manual(values = scenario_colours) +
+  scale_fill_manual(values = scenario_colours) +
   guides(fill = "none") +
   scale_y_continuous(labels = scales::label_percent()) +
   coord_cartesian(ylim = c(0, 1)) +
