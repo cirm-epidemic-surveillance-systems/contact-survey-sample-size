@@ -1353,11 +1353,12 @@ fc_final_size_pipeline <- function(contact_data,
 
   contact_data_modelling <- contact_data |>
     left_join(age_contact_pred_years, by = c("age_from", "age_to")) |>
-    filter(age_from <= max_age, age_to <= max_age)
+    filter(age_from <= max_age, age_to <= max_age) |>
+    mutate(obs = factor(row_number()))
 
   # nAGQ = 0 for numerical robustness (see the qmd for the rationale)
   model_twostage <- lme4::glmer(
-    contacts ~ offset(log(predicted_contacts)) + (1 | part_id),
+    contacts ~ offset(log(predicted_contacts)) + (1 | part_id) + (1|obs),
     family = stats::poisson,
     data = contact_data_modelling,
     nAGQ = 0
@@ -1478,39 +1479,90 @@ resample_participants <- function(contact_data, canonical_ids) {
   list(data = resampled, membership = drawn_idx)
 }
 
-# Bootstrap confidence interval for a scalar quantity, returning both the plain
-# percentile interval and the bias-corrected ("BC") interval. `theta_star` is
-# the vector of bootstrap replicate estimates and `theta_hat` the point estimate
-# from the full data. The BC interval shifts the percentiles to correct for any
-# median bias between theta_hat and the bootstrap distribution, via the
-# bias-correction constant z0 = Phi^-1(fraction of replicates below theta_hat).
-# The acceleration term of a full BCa interval is set to zero here (see the
-# analysis-3 qmd for why it is deferred); z0 is returned so the size of the bias
-# correction can be inspected. Following Efron & Tibshirani (1993).
-bc_ci <- function(theta_star, theta_hat, level = 0.95) {
-  theta_star <- theta_star[is.finite(theta_star)]
-  n_star <- length(theta_star)
-  a_tail <- (1 - level) / 2
-  probs <- c(a_tail, 1 - a_tail)
+# Sample skewness (the standardised third moment g1) of a vector, used to gauge
+# how far a bootstrap distribution departs from symmetry. Non-finite values are
+# dropped.
+sample_skewness <- function(x) {
+  x <- x[is.finite(x)]
+  m <- mean(x)
+  s <- sqrt(mean((x - m)^2))
+  mean((x - m)^3) / s^3
+}
 
-  # plain percentile interval
-  pct <- quantile(theta_star, probs, names = FALSE, type = 7)
+# --- Bootstrap confidence intervals via the boot package --------------------
+# The analysis-3 replicates come from an expensive external cluster resample
+# (see bootstrap_analysis_3.R), so boot() cannot regenerate them and boot's own
+# influence-value routines -- which re-simulate the resamples from a stored RNG
+# seed -- do not apply. We therefore estimate the empirical influence values
+# ourselves by jackknife-after-bootstrap from the stored resample membership, and
+# then hand the replicates and influence values to boot::boot.ci, which performs
+# all of the interval-endpoint arithmetic (percentile and BCa). The boot package
+# is well validated, so the CI calculations are not reimplemented here.
 
-  # bias correction: z0 from the fraction of replicates below the point estimate
-  prop_below <- mean(theta_star < theta_hat)
-  # guard degenerate proportions (0 or 1 would give an infinite z0)
-  prop_below <- min(max(prop_below, 1 / (2 * n_star)), 1 - 1 / (2 * n_star))
-  z0 <- qnorm(prop_below)
+# Jackknife-after-bootstrap empirical influence values (Efron 1992). `theta_star`
+# is a matrix (or data frame) of replicate estimates -- one column per quantity,
+# one row per replicate -- and `membership` the list of resampled unit indices
+# for each replicate, aligned row-for-row with `theta_star`. The leave-one-unit-
+# out estimate theta_(j) is approximated by the mean of the replicates in which
+# unit j did not appear, and the influence value is L_j = mean_j theta_(j) -
+# theta_(j). Returns an n_units x n_quantities matrix of influence values.
+jab_influence <- function(theta_star, membership, n_units) {
+  theta_star <- as.matrix(theta_star)
+  B <- nrow(theta_star)
+  # accumulate, per unit, the sum and count of replicates in which it is present
+  present_sum <- matrix(0, n_units, ncol(theta_star))
+  present_cnt <- integer(n_units)
+  for (r in seq_len(B)) {
+    j <- unique(membership[[r]])
+    present_sum[j, ] <- present_sum[j, ] + rep(theta_star[r, ], each = length(j))
+    present_cnt[j]   <- present_cnt[j] + 1L
+  }
+  # leave-one-out mean = mean over the replicates in which the unit was absent
+  theta_loo <- sweep(-present_sum, 2, colSums(theta_star), `+`) / (B - present_cnt)
+  theta_loo[!is.finite(theta_loo)] <- NA  # units present in every replicate: no info
+  L <- sweep(theta_loo, 2, colMeans(theta_loo, na.rm = TRUE), function(x, m) m - x)
+  L[!is.finite(L)] <- 0                    # such units get zero influence
+  L
+}
 
-  # adjusted percentiles (acceleration a = 0)
-  adj_probs <- pnorm(2 * z0 + qnorm(probs))
-  bc <- quantile(theta_star, adj_probs, names = FALSE, type = 7)
-
-  tibble(
-    estimate = theta_hat,
-    pct_lower = pct[1], pct_upper = pct[2],
-    bc_lower = bc[1], bc_upper = bc[2],
-    z0 = z0,
-    n_boot = n_star
+# Percentile and BCa interval for a single scalar quantity, computed by
+# boot::boot.ci from a precomputed replicate vector `theta_star`, point estimate
+# `theta_hat`, and influence values `L` (from jab_influence()). A minimal "boot"
+# object is assembled so that boot.ci uses the supplied replicates and influence
+# values directly, rather than regenerating resamples. Returns a one-row tibble.
+boot_interval <- function(theta_star, theta_hat, L, conf = 0.95) {
+  ok <- is.finite(theta_star)
+  n  <- length(L)
+  boot_obj <- structure(
+    list(t0 = theta_hat, t = matrix(theta_star[ok], ncol = 1), R = sum(ok),
+         data = seq_len(n), seed = c(10403L, 0L, 0L), sim = "ordinary",
+         stype = "i", strata = rep(1, n), weights = rep(1 / n, n),
+         call = quote(boot())),
+    class = "boot"
   )
+  ci <- boot::boot.ci(boot_obj, conf = conf, type = c("perc", "bca"), L = L)
+  tibble(
+    estimate  = theta_hat,
+    pct_lower = ci$percent[4], pct_upper = ci$percent[5],
+    bca_lower = ci$bca[4],     bca_upper = ci$bca[5]
+  )
+}
+
+# Percentile and BCa intervals for several quantities at once. `theta_star` is a
+# matrix (or data frame) of replicates (rows = replicates aligned with
+# `membership`, cols = quantities) and `theta_hat` the vector of point estimates,
+# one per column. Also returns the bias-correction constant z0 and the
+# acceleration a for each quantity (the same constants boot uses internally),
+# reported so the size of each correction can be inspected.
+boot_intervals <- function(theta_star, theta_hat, membership, n_units, conf = 0.95) {
+  theta_star <- as.matrix(theta_star)
+  L <- jab_influence(theta_star, membership, n_units)
+  out <- map_dfr(seq_len(ncol(theta_star)),
+                 ~ boot_interval(theta_star[, .x], theta_hat[.x], L[, .x], conf))
+  out$z0 <- vapply(seq_len(ncol(theta_star)), function(k) {
+    t <- theta_star[, k]; t <- t[is.finite(t)]
+    qnorm(mean(t < theta_hat[k]))
+  }, numeric(1))
+  out$a <- apply(L, 2, function(l) sum(l^3) / (6 * sum(l^2)^1.5))
+  out
 }
