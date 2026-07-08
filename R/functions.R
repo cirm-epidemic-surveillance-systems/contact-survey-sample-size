@@ -823,7 +823,33 @@ quantile_classes_mean <- function(sigma,
       activity = means_by_quantile,
       fraction
     )
-  
+
+}
+
+# given an activity level standard deviation sigma and target number of classes,
+# use evenly-sized quantile bins with uniform population fractions, but set each
+# bin's activity level to the inverse-CDF (quantile function) evaluated at the
+# bin's midpoint quantile, rather than to the bin mean. This matches the
+# discretisation used in the Matlab scripts (Matlab/contact_models.m), where the
+# activity levels are v = logninv(x, 0, sigma) evaluated at bin-midpoint
+# quantiles x.
+quantile_classes_midpoint <- function(sigma,
+                                      n_classes) {
+
+  # midpoint quantile of each of n_classes equal-probability bins
+  midpoints <- (seq_len(n_classes) - 0.5) / n_classes
+
+  # activity level = inverse CDF of the lognormal at each midpoint quantile
+  activity <- qlnorm(midpoints,
+                     meanlog = 0,
+                     sdlog = sigma)
+
+  tibble(
+    class = seq_len(n_classes),
+    activity = activity,
+    fraction = 1 / n_classes
+  )
+
 }
 
 # given an activity level standard deviation sigma and target number of classes,
@@ -884,13 +910,16 @@ get_activity_classes <- function(sigma,
                                  n_classes,
                                  method = c("gaussquad",
                                             "quantile_mean",
-                                            "quantile2_mean")) {
+                                            "quantile2_mean",
+                                            "quantile_midpoint")) {
   switch(
     method,
     quantile_mean = quantile_classes_mean(sigma,
                                           n_classes),
     quantile2_mean = quantile2_classes_mean(sigma,
                                             n_classes),
+    quantile_midpoint = quantile_classes_midpoint(sigma,
+                                                  n_classes),
     gaussquad = gaussquad_classes(sigma,
                                   n_classes)
   )
@@ -932,14 +961,18 @@ bin_estimate_sd <- function(sigma,
 # method is the method to use for integration: 'quantile_mean' to use quantiles
 #   of equal size and quantile mean activity levels estimated by Monte Carlo
 #   simulation, 'quantile2_mean' does the same by numerical integration,
-#   'gaussquad' uses Gaussian Legendre quadrature points, with different weights
-#   (population fractions of classes) and fixed quadrature points.
+#   'quantile_midpoint' uses quantiles of equal size but sets each bin's activity
+#   level to the inverse-CDF value at its midpoint quantile (matching the Matlab
+#   discretisation), 'gaussquad' uses Gaussian Legendre quadrature points, with
+#   different weights (population fractions of classes) and fixed quadrature
+#   points.
 generate_matrix <- function(sigma = 1,
                             assort = 1,
                             n_classes = 2,
                             method = c("gaussquad",
                                        "quantile_mean",
-                                       "quantile2_mean")) {
+                                       "quantile2_mean",
+                                       "quantile_midpoint")) {
   
   activity_classes <- get_activity_classes(sigma = sigma,
                                            n_classes = n_classes,
@@ -989,7 +1022,8 @@ map_to_eigen <- function(sigma = 1,
                          beta = 1,
                          method = c("gaussquad",
                                     "quantile_mean",
-                                    "quantile2_mean")) {
+                                    "quantile2_mean",
+                                    "quantile_midpoint")) {
   method <- match.arg(method)
   M <- generate_matrix(sigma = sigma,
                        assort = assort,
