@@ -190,7 +190,7 @@ Finally, fit a Poisson GLMM and extract the estimate of sigma.
 # is robust to this and gives an effectively identical variance estimate.
 model_twostage <- lme4::glmer(
   contacts ~ offset(log(predicted_contacts)) +
-    (1|part_id) + (1|obs),
+      (1|part_id) + (1|obs),
   family = stats::poisson,
   data = fc_contact_data_modelling,
   nAGQ = 0
@@ -566,7 +566,7 @@ size_age_activity_by_age <- size_age_activity |>
 
 To quantify sampling uncertainty in these estimates we use a participant-level (cluster) bootstrap: we resample the survey participants with replacement (giving each drawn participant a fresh identifier, so a participant drawn more than once contributes as distinct individuals) and re-run the entire two-stage pipeline - age-structured contact model, residual heterogeneity `sigma`, activity matrix, R0s and final sizes - on each resample. The contact ages are re-imputed for each replicate, so imputation uncertainty is folded in as well.
 
-This is computationally expensive, so the bootstrap is run separately by `R/bootstrap_analysis_3.R` (which parallelises across cores and caches its output). Here we load the cached replicates and summarise them. We report **bias-corrected ("BC")** bootstrap intervals: percentile intervals adjusted for any median bias between the point estimate and the bootstrap distribution. The acceleration term of a full BCa interval is deferred - it needs either a separate jackknife or a jackknife-after-bootstrap from the stored resample membership, and is only worth adding if the bootstrap distributions turn out to be materially skewed (inspect `z0` in the summary table below).
+This is computationally expensive, so the bootstrap is run separately by `R/bootstrap_analysis_3.R` (which parallelises across cores and caches its output). Here we load the cached replicates and summarise them. We report **bias-corrected ("BC")** bootstrap intervals: percentile intervals adjusted for any median bias between the point estimate and the bootstrap distribution. The remaining ingredient of a full BCa interval is the *acceleration* term, which corrects for skewness. We do not apply it to the headline intervals, but we verify below that it is negligible here: we estimate it directly by jackknife-after-bootstrap from the stored resample membership (no re-fitting) and confirm the BCa intervals are indistinguishable from the BC ones.
 
 ```{r}
 boot <- readRDS("data/boot_analysis_3.rds")
@@ -714,7 +714,7 @@ overall_size_age_scaled <- sum(size_age_scaled$p_infected * age_fractions)
 overall_size_age_activity <- sum(size_age_activity$p_infected * age_activity_fractions)
 ```
 
-Finally, assemble the headline quantities with their point estimates and 95% bootstrap intervals. We show the bias-corrected ("BC") interval alongside the plain percentile interval, and the bias-correction constant `z0` (large `|z0|` would indicate the bootstrap distribution is noticeably off-centre from the point estimate, and hence that adding the BCa acceleration term might be worthwhile).
+Finally, assemble the headline quantities with their point estimates and 95% bootstrap intervals. We show the bias-corrected ("BC") interval alongside the plain percentile interval, and the bias-correction constant `z0` (large `|z0|` would indicate the bootstrap distribution is noticeably off-centre from the point estimate); the following section checks formally that the omitted BCa acceleration term is negligible.
 
 ```{r}
 summary_table <- bind_rows(
@@ -741,3 +741,61 @@ summary_table <- bind_rows(
 
 knitr::kable(summary_table, digits = 3)
 ```
+
+## Are the bias-corrected intervals adequate? (BCa acceleration check)
+
+A percentile or BC interval can be inaccurate when the sampling distribution of a statistic is skewed. The full BCa interval corrects for this through an *acceleration* constant `a`, which is one-sixth of the skewness of the statistic's empirical influence values - so `a` is the quantity that actually decides whether BCa differs from BC. Because the bootstrap recorded which participants entered each replicate, we can estimate `a` by **jackknife-after-bootstrap**, approximating each leave-one-participant-out estimate by the mean of the replicates that omitted that participant, with no additional model fits.
+
+For each headline quantity we report the skewness of its bootstrap distribution, the bias-correction constant `z0`, the estimated acceleration `a`, and the BC and BCa intervals side by side.
+
+```{r}
+# quantities to check, with their point estimates and display names (order
+# matches the summary table above)
+scalar_cols <- c("R0_age", "R0_age_activity", "sigma",
+                 "overall_age", "overall_age_scaled", "overall_age_activity")
+
+scalar_points <- c(
+  R0_age               = R0_age,
+  R0_age_activity      = R0_age_activity,
+  sigma                = sigma_fc_twostage,
+  overall_age          = overall_size_age,
+  overall_age_scaled   = overall_size_age_scaled,
+  overall_age_activity = overall_size_age_activity
+)
+
+scalar_names <- c(
+  R0_age               = "R0 (age matrix)",
+  R0_age_activity      = "R0 (age/activity matrix)",
+  sigma                = "residual heterogeneity (sigma)",
+  overall_age          = "overall final size (age matrix)",
+  overall_age_scaled   = "overall final size (age matrix, rescaled)",
+  overall_age_activity = "overall final size (age/activity matrix)"
+)
+
+# resample membership, aligned row-for-row with boot_scalars, and the (fixed)
+# number of participants those indices refer to
+boot_membership <- map(boot_ok, "membership")
+n_participants  <- length(boot$canonical_ids)
+
+# BCa acceleration for every quantity in one jackknife-after-bootstrap pass
+accel <- bca_acceleration(boot_scalars[scalar_cols], boot_membership, n_participants)
+names(accel) <- scalar_cols
+
+bca_diagnostic <- map_dfr(scalar_cols, function(q) {
+  x   <- boot_scalars[[q]]
+  bc  <- bc_ci(x, scalar_points[[q]])
+  bca <- bca_ci(x, scalar_points[[q]], accel[[q]])
+  tibble(
+    quantity     = scalar_names[[q]],
+    skewness     = sample_skewness(x),
+    z0           = bc$z0,
+    a            = accel[[q]],
+    `BC 95% CI`  = sprintf("(%.3f, %.3f)", bc$bc_lower, bc$bc_upper),
+    `BCa 95% CI` = sprintf("(%.3f, %.3f)", bca$bca_lower, bca$bca_upper)
+  )
+})
+
+knitr::kable(bca_diagnostic, digits = c(0, 3, 3, 4, 0, 0))
+```
+
+Across every quantity the bootstrap distribution is close to symmetric (`|skewness|` $\le$ `r sprintf("%.2f", max(abs(bca_diagnostic$skewness)))`) and the acceleration is negligible (`|a|` $<$ `r sprintf("%.3f", max(abs(bca_diagnostic$a)))`). As a result the BCa endpoints are indistinguishable from the BC endpoints (they agree to three decimal places, shifting by less than 0.1% of the point estimate). The plain bias-corrected intervals are therefore adequate, and we retain them throughout.

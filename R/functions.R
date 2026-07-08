@@ -1515,3 +1515,71 @@ bc_ci <- function(theta_star, theta_hat, level = 0.95) {
     n_boot = n_star
   )
 }
+
+# Sample skewness (the standardised third moment g1) of a vector, used to gauge
+# how far a bootstrap distribution departs from symmetry. Non-finite values are
+# dropped.
+sample_skewness <- function(x) {
+  x <- x[is.finite(x)]
+  m <- mean(x)
+  s <- sqrt(mean((x - m)^2))
+  mean((x - m)^3) / s^3
+}
+
+# BCa acceleration constant(s) via jackknife-after-bootstrap (Efron 1992). This
+# is the quantity that distinguishes a full BCa interval from the plain BC
+# interval above: a = (1/6) * skewness of the empirical influence values. Given a
+# matrix (or data frame) of bootstrap replicate estimates -- one column per
+# quantity, one row per replicate -- and `membership`, the list of resampled unit
+# indices for each replicate (aligned row-for-row with `theta_star`), it
+# estimates each column's acceleration without any re-fitting: the
+# leave-one-unit-out estimate theta_(j) is approximated by the mean of the
+# replicates in which unit j did not appear, and
+#   a = sum_j (theta_(.) - theta_(j))^3 / (6 * (sum_j (theta_(.) - theta_(j))^2)^{3/2}),
+# with theta_(.) the mean of the leave-one-out estimates. Returns one
+# acceleration per column of `theta_star`.
+bca_acceleration <- function(theta_star, membership, n_units) {
+  theta_star <- as.matrix(theta_star)
+  B <- nrow(theta_star)
+  # accumulate, per unit, the sum and count of replicates in which it is present
+  present_sum <- matrix(0, n_units, ncol(theta_star))
+  present_cnt <- integer(n_units)
+  for (r in seq_len(B)) {
+    j <- unique(membership[[r]])
+    present_sum[j, ] <- present_sum[j, ] + rep(theta_star[r, ], each = length(j))
+    present_cnt[j]   <- present_cnt[j] + 1L
+  }
+  # leave-one-out mean = mean over the replicates in which the unit was absent
+  absent_sum <- sweep(-present_sum, 2, colSums(theta_star), `+`)
+  theta_loo  <- absent_sum / (B - present_cnt)
+  apply(theta_loo, 2, function(tl) {
+    tl <- tl[is.finite(tl)]        # units present in every replicate contribute nothing
+    d <- mean(tl) - tl
+    sum(d^3) / (6 * sum(d^2)^1.5)
+  })
+}
+
+# Full BCa confidence interval given a precomputed acceleration `a` (see
+# bca_acceleration()). With a = 0 this reduces exactly to the BC interval of
+# bc_ci(); a non-zero `a` additionally corrects for skewness. Returns the
+# interval endpoints alongside the acceleration used.
+bca_ci <- function(theta_star, theta_hat, a, level = 0.95) {
+  theta_star <- theta_star[is.finite(theta_star)]
+  n_star <- length(theta_star)
+  a_tail <- (1 - level) / 2
+  z <- qnorm(c(a_tail, 1 - a_tail))
+
+  # bias correction z0, guarded against degenerate proportions as in bc_ci()
+  prop_below <- mean(theta_star < theta_hat)
+  prop_below <- min(max(prop_below, 1 / (2 * n_star)), 1 - 1 / (2 * n_star))
+  z0 <- qnorm(prop_below)
+
+  adj_probs <- pnorm(z0 + (z0 + z) / (1 - a * (z0 + z)))
+  bca <- quantile(theta_star, adj_probs, names = FALSE, type = 7)
+
+  tibble(
+    estimate = theta_hat,
+    bca_lower = bca[1], bca_upper = bca[2],
+    z0 = z0, a = a
+  )
+}
