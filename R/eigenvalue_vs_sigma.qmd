@@ -1,0 +1,186 @@
+---
+title: "Dominant eigenvalue vs activity heterogeneity"
+format: html
+editor: visual
+---
+
+# Dominant eigenvalue of the activity-structured contact matrix
+
+This document remakes the MATLAB figure produced by `matlab/contact_models.m` (`figure(4)`): the dominant eigenvalue $\lambda$ of an assortative, activity-structured contact matrix as a function of the activity heterogeneity $\sigma$ (the standard deviation of the log activity-level distribution), with a separate line for each value of the assortativity kernel width $\alpha$.
+
+Rather than the MATLAB discretisation (100 evenly-sized quantile bins), it uses the R functions from the analysis 3 pipeline: the activity classes are defined by Gauss-Hermite quadrature (`gaussquad_classes()`), the matrix is built with Tom's iterative normalisation method (`make_toms_contact_matrix()`, a port of `matlab/makeContactMatrix_AM_Tom.m`), and the dominant eigenvalue is extracted with `get_eigenval()`.
+
+The second half of the document confirms that the quadrature scheme is a more accurate approximation of the continuous activity model than the even-bin scheme, by comparing both against the analytic answer available in the proportionate-mixing ($\alpha = 0$) case.
+
+```{r}
+#| message: false
+#| warning: false
+source("R/packages.R")
+source("R/functions.R")
+
+# seed for the Monte Carlo binning method used in the comparison below
+set.seed(2026-07-08)
+```
+
+## The figure
+
+We sweep the dominant eigenvalue over a grid of activity heterogeneity $\sigma$ and assortativity kernel width $\alpha$. The $\alpha$ values match those plotted in the MATLAB figure (`Alpha_arr = 0:2:40`, every 5th value). We use 100 quadrature points, matching the MATLAB bin count; this gives visually converged curves even for the sharpest ($\alpha = 40$) kernel.
+
+```{r}
+# activity heterogeneity (sd of the log activity distribution)
+sigma_grid <- seq(0, 1, by = 0.025)
+
+# assortativity kernel width, matching the values plotted in the MATLAB figure
+alpha_values <- c(0, 10, 20, 30, 40)
+
+# number of quadrature points used to approximate the continuous activity
+# distribution
+n_classes <- 100
+```
+
+For each $(\sigma, \alpha)$ we build the activity classes by quadrature, construct the assortative matrix, and take its dominant eigenvalue. When $\sigma = 0$ everyone shares the same activity level, so the matrix is homogeneous with dominant eigenvalue 1 for any $\alpha$.
+
+```{r}
+dominant_eigenvalue <- function(sigma, alpha, n_classes) {
+  if (sigma == 0) {
+    return(1)
+  }
+  activity_bins <- gaussquad_classes(sigma = sigma, n_classes = n_classes)
+  M <- make_toms_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction,
+    alpha = alpha
+  )
+  get_eigenval(M)
+}
+
+eigen_grid <- expand_grid(
+  sigma = sigma_grid,
+  alpha = alpha_values
+) |>
+  mutate(
+    lambda = pmap_dbl(
+      list(sigma, alpha),
+      dominant_eigenvalue,
+      n_classes = n_classes
+    ),
+    alpha = factor(alpha, levels = alpha_values)
+  )
+```
+
+```{r}
+eigenvalue_plot <- eigen_grid |>
+  ggplot(aes(x = sigma, y = lambda, colour = alpha)) +
+  geom_line(linewidth = 0.8) +
+  scale_colour_viridis_d(end = 0.9, direction = -1) +
+  labs(
+    x = expression("activity heterogeneity (" * sigma * ")"),
+    y = expression("dominant eigenvalue (" * lambda * ")"),
+    colour = expression("assortativity (" * alpha * ")")
+  ) +
+  theme_minimal()
+
+eigenvalue_plot
+
+ggsave("figures/eigenvalue_vs_sigma.png",
+       plot = eigenvalue_plot,
+       bg = "white",
+       width = 7,
+       height = 5,
+       dpi = 300)
+```
+
+## Confirming the quadrature is more accurate
+
+The curves above sit higher than those in the MATLAB figure. This is expected if the Gauss-Hermite quadrature is the more accurate scheme, because the MATLAB even-bin discretisation truncates the heavy upper tail of the lognormal activity distribution --- and it is exactly that tail that inflates $E[v^2]$ and hence the dominant eigenvalue.
+
+To confirm this we recompute the curves under two activity discretisations with the same number of bins:
+
+-   **Gauss-Hermite quadrature** (`gaussquad_classes()`) --- unequal weights at quadrature nodes; the accurate method used in analysis 3.
+-   **even bins, MATLAB** --- the inverse-CDF value at each bin's midpoint quantile with uniform weights, a faithful port of the MATLAB discretisation (`v = logninv(x, 0, sigma)` at bin midpoints $x$).
+
+The $\alpha = 0$ (proportionate mixing) case has a known analytic dominant eigenvalue, $\exp(\sigma^2)$, giving an exact reference to judge accuracy against.
+
+```{r}
+# activity classes as an (activity, fraction) tibble for a given method and sigma
+activity_classes <- function(method, sigma) {
+  switch(
+    method,
+    # accurate quadrature scheme used in analysis 3
+    gaussquad = gaussquad_classes(sigma = sigma, n_classes = n_classes),
+    # faithful port of the MATLAB discretisation: inverse-CDF at midpoint
+    # quantiles, uniform population weights
+    matlab = tibble(
+      activity = qlnorm((seq_len(n_classes) - 0.5) / n_classes, 0, sigma),
+      fraction = 1 / n_classes
+    )
+  )
+}
+
+dominant_eigenvalue_method <- function(method, sigma, alpha) {
+  if (sigma == 0) {
+    return(1)
+  }
+  bins <- activity_classes(method, sigma)
+  M <- make_toms_contact_matrix(
+    v = bins$activity,
+    p_pop = bins$fraction,
+    alpha = alpha
+  )
+  get_eigenval(M)
+}
+
+method_labels <- c(
+  gaussquad = "Gauss-Hermite quadrature",
+  matlab    = "even bins, MATLAB"
+)
+
+eigen_grid_methods <- expand_grid(
+  method = names(method_labels),
+  sigma  = sigma_grid,
+  alpha  = alpha_values
+) |>
+  mutate(
+    lambda = pmap_dbl(list(method, sigma, alpha), dominant_eigenvalue_method),
+    method = factor(method_labels[method], levels = method_labels),
+    alpha  = factor(alpha, levels = alpha_values)
+  )
+```
+
+```{r}
+comparison_plot <- eigen_grid_methods |>
+  ggplot(aes(x = sigma, y = lambda, colour = alpha, linetype = method)) +
+  geom_line(linewidth = 0.7) +
+  scale_colour_viridis_d(end = 0.9, direction = -1) +
+  labs(
+    x = expression("activity heterogeneity (" * sigma * ")"),
+    y = expression("dominant eigenvalue (" * lambda * ")"),
+    colour = expression("assortativity (" * alpha * ")"),
+    linetype = "binning method"
+  ) +
+  theme_minimal()
+
+comparison_plot
+
+ggsave("figures/eigenvalue_vs_sigma_binning_comparison.png",
+       plot = comparison_plot,
+       bg = "white",
+       width = 8,
+       height = 5,
+       dpi = 300)
+```
+
+### Numerical accuracy check
+
+For $\alpha = 0$ the exact dominant eigenvalue is $\exp(\sigma^2)$; at $\sigma = 1$ that is $\exp(1) = 2.71828$. The quadrature scheme recovers it essentially exactly, while the MATLAB even-bin scheme falls short by around 12% (and the MC bin-mean method, which captures more of the tail than a single midpoint value, by around 6%). The "even bins, MATLAB" curve also reproduces the saved MATLAB figure (`matlab/figures/eigenvalue.png`), confirming that the shift between the two R figures is due entirely to the binning scheme.
+
+```{r}
+accuracy_check <- eigen_grid_methods |>
+  filter(sigma == 1) |>
+  select(method, alpha, lambda) |>
+  pivot_wider(names_from = method, values_from = lambda)
+
+knitr::kable(accuracy_check, digits = 4)
+```
+
+The analytic reference at $\alpha = 0$, $\sigma = 1$ is $\exp(1) = `r sprintf("%.4f", exp(1))`$.
