@@ -566,7 +566,7 @@ size_age_activity_by_age <- size_age_activity |>
 
 To quantify sampling uncertainty in these estimates we use a participant-level (cluster) bootstrap: we resample the survey participants with replacement (giving each drawn participant a fresh identifier, so a participant drawn more than once contributes as distinct individuals) and re-run the entire two-stage pipeline - age-structured contact model, residual heterogeneity `sigma`, activity matrix, R0s and final sizes - on each resample. The contact ages are re-imputed for each replicate, so imputation uncertainty is folded in as well.
 
-This is computationally expensive, so the bootstrap is run separately by `R/bootstrap_analysis_3.R` (which parallelises across cores and caches its output). Here we load the cached replicates and summarise them. We report **bias-corrected ("BC")** bootstrap intervals: percentile intervals adjusted for any median bias between the point estimate and the bootstrap distribution. The remaining ingredient of a full BCa interval is the *acceleration* term, which corrects for skewness. We do not apply it to the headline intervals, but we verify below that it is negligible here: we estimate it directly by jackknife-after-bootstrap from the stored resample membership (no re-fitting) and confirm the BCa intervals are indistinguishable from the BC ones.
+This is computationally expensive, so the bootstrap is run separately by `R/bootstrap_analysis_3.R` (which parallelises across cores and caches its output). Here we load the cached replicates and summarise them. We report **BCa** (bias-corrected and accelerated) bootstrap intervals, computed with the well-validated `boot` package. Because the replicates come from an expensive external cluster resample that `boot()` cannot regenerate, we estimate the empirical influence values that the acceleration term needs by jackknife-after-bootstrap from the stored resample membership (no re-fitting), and pass those together with the replicates to `boot::boot.ci`, which does all of the interval-endpoint arithmetic. A diagnostic below shows the bias and acceleration corrections are small, so the BCa intervals sit essentially on the plain percentile intervals.
 
 ```{r}
 boot <- readRDS("data/boot_analysis_3.rds")
@@ -592,6 +592,14 @@ boot_scalars <- boot_ok |>
     overall_age_scaled = .x$result$overall[["age_scaled"]],
     overall_age_activity = .x$result$overall[["age_activity"]]
   ))
+
+# resample membership (aligned row-for-row with boot_ok / boot_scalars), the
+# fixed number of participants those indices refer to, and the replicate order:
+# these drive the jackknife-after-bootstrap influence values behind the BCa
+# intervals computed by boot::boot.ci
+boot_membership <- map(boot_ok, "membership")
+n_participants  <- length(boot$canonical_ids)
+rep_order       <- map_int(boot_ok, "rep")
 
 sprintf("%i of %i bootstrap replicates used (%i failed)",
         n_boot, boot$config$B, boot$config$B - n_boot)
@@ -639,22 +647,28 @@ final_size_scenarios <- bind_rows(
   ) |>
   arrange(scenario, age_lower)
 
-# bootstrap BC interval for each scenario x age bin, to draw as a band. The band
+# bootstrap BCa interval for each scenario x age bin, to draw as a band. The band
 # is piecewise-constant across each age bin (a geom_rect per bin), matching the
 # step lines exactly (a geom_ribbon would slope between bin midpoints instead).
-final_size_ci <- final_size_scenarios |>
-  select(scenario_key, scenario, age_lower, age_upper, p_infected) |>
-  pmap_dfr(function(scenario_key, scenario, age_lower, age_upper, p_infected) {
-    reps <- boot_by_age |>
-      filter(scenario == scenario_key, age_lower == !!age_lower) |>
-      pull(p_infected)
-    bc_ci(reps, p_infected) |>
-      mutate(
-        scenario = scenario,
-        age_lower = age_lower,
-        age_upper = age_upper
-      )
-  })
+# We assemble a matrix of replicate final sizes (one column per scenario x bin,
+# rows aligned with the resample membership) and pass it to boot::boot.ci.
+boot_by_age_wide <- boot_by_age |>
+  mutate(col = paste(scenario, age_lower, sep = "@")) |>
+  select(rep, col, p_infected) |>
+  pivot_wider(names_from = col, values_from = p_infected) |>
+  arrange(match(rep, rep_order))
+by_age_mat <- as.matrix(boot_by_age_wide[, -1])
+
+# point estimates and bin labels, matched to the matrix columns
+by_age_points <- final_size_scenarios |>
+  mutate(col = paste(scenario_key, age_lower, sep = "@"))
+by_age_hat <- by_age_points$p_infected[match(colnames(by_age_mat), by_age_points$col)]
+
+final_size_ci <- boot_intervals(by_age_mat, by_age_hat,
+                                boot_membership, n_participants) |>
+  mutate(col = colnames(by_age_mat)) |>
+  left_join(select(by_age_points, col, scenario, age_lower, age_upper),
+            by = "col")
 
 # add a terminal point at the upper edge of the final bin for each scenario, so
 # the step spans the full width of every age bin (piecewise constant)
@@ -671,11 +685,11 @@ final_size_points <- final_size_scenarios |>
   mutate(age_mid = (age_lower + age_upper) / 2)
 
 final_size_plot <- ggplot() +
-  # 95% bootstrap BC interval, piecewise-constant across each age bin
+  # 95% bootstrap BCa interval, piecewise-constant across each age bin
   geom_rect(
     data = final_size_ci,
     aes(xmin = age_lower, xmax = age_upper,
-        ymin = bc_lower, ymax = bc_upper, fill = scenario),
+        ymin = bca_lower, ymax = bca_upper, fill = scenario),
     alpha = 0.2
   ) +
   geom_step(
@@ -714,88 +728,58 @@ overall_size_age_scaled <- sum(size_age_scaled$p_infected * age_fractions)
 overall_size_age_activity <- sum(size_age_activity$p_infected * age_activity_fractions)
 ```
 
-Finally, assemble the headline quantities with their point estimates and 95% bootstrap intervals. We show the bias-corrected ("BC") interval alongside the plain percentile interval, and the bias-correction constant `z0` (large `|z0|` would indicate the bootstrap distribution is noticeably off-centre from the point estimate); the following section checks formally that the omitted BCa acceleration term is negligible.
+Finally, assemble the headline quantities with their point estimates and 95% BCa bootstrap intervals, shown alongside the plain percentile interval.
 
 ```{r}
-summary_table <- bind_rows(
-  bc_ci(boot_scalars$R0_age, R0_age) |>
-    mutate(quantity = "R0 (age matrix)"),
-  bc_ci(boot_scalars$R0_age_activity, R0_age_activity) |>
-    mutate(quantity = "R0 (age/activity matrix)"),
-  bc_ci(boot_scalars$sigma, sigma_fc_twostage) |>
-    mutate(quantity = "residual heterogeneity (sigma)"),
-  bc_ci(boot_scalars$overall_age, overall_size_age) |>
-    mutate(quantity = "overall final size (age matrix)"),
-  bc_ci(boot_scalars$overall_age_scaled, overall_size_age_scaled) |>
-    mutate(quantity = "overall final size (age matrix, rescaled)"),
-  bc_ci(boot_scalars$overall_age_activity, overall_size_age_activity) |>
-    mutate(quantity = "overall final size (age/activity matrix)")
-) |>
+# scalar quantities to summarise: replicate columns, point estimates and display
+# names, all in the same order
+scalar_cols <- c("R0_age", "R0_age_activity", "sigma",
+                 "overall_age", "overall_age_scaled", "overall_age_activity")
+
+scalar_points <- c(
+  R0_age, R0_age_activity, sigma_fc_twostage,
+  overall_size_age, overall_size_age_scaled, overall_size_age_activity
+)
+
+scalar_names <- c(
+  "R0 (age matrix)",
+  "R0 (age/activity matrix)",
+  "residual heterogeneity (sigma)",
+  "overall final size (age matrix)",
+  "overall final size (age matrix, rescaled)",
+  "overall final size (age/activity matrix)"
+)
+
+# percentile + BCa intervals (with the z0 and a corrections) for every quantity,
+# computed by boot::boot.ci. Also record the skewness of each bootstrap
+# distribution for the diagnostic below.
+scalar_ci <- boot_intervals(boot_scalars[scalar_cols], scalar_points,
+                            boot_membership, n_participants) |>
+  mutate(
+    quantity = scalar_names,
+    skewness = map_dbl(boot_scalars[scalar_cols], sample_skewness)
+  )
+
+summary_table <- scalar_ci |>
   transmute(
     quantity,
     estimate,
-    `BC 95% CI` = sprintf("(%.3f, %.3f)", bc_lower, bc_upper),
     `percentile 95% CI` = sprintf("(%.3f, %.3f)", pct_lower, pct_upper),
-    z0 = round(z0, 2)
+    `BCa 95% CI` = sprintf("(%.3f, %.3f)", bca_lower, bca_upper)
   )
 
 knitr::kable(summary_table, digits = 3)
 ```
 
-## Are the bias-corrected intervals adequate? (BCa acceleration check)
+## How large are the BCa corrections?
 
-A percentile or BC interval can be inaccurate when the sampling distribution of a statistic is skewed. The full BCa interval corrects for this through an *acceleration* constant `a`, which is one-sixth of the skewness of the statistic's empirical influence values - so `a` is the quantity that actually decides whether BCa differs from BC. Because the bootstrap recorded which participants entered each replicate, we can estimate `a` by **jackknife-after-bootstrap**, approximating each leave-one-participant-out estimate by the mean of the replicates that omitted that participant, with no additional model fits.
-
-For each headline quantity we report the skewness of its bootstrap distribution, the bias-correction constant `z0`, the estimated acceleration `a`, and the BC and BCa intervals side by side.
+A BCa interval departs from the plain percentile interval through two constants: the bias correction `z0` (from the fraction of replicates below the point estimate) and the acceleration `a`, which is one-sixth of the skewness of the statistic's empirical influence values and corrects for skewness in the sampling distribution. If both are small, the BCa interval essentially coincides with the percentile interval and there is little to worry about. The table below reports, for each headline quantity, the skewness of its bootstrap distribution together with the `z0` and `a` that `boot.ci` used.
 
 ```{r}
-# quantities to check, with their point estimates and display names (order
-# matches the summary table above)
-scalar_cols <- c("R0_age", "R0_age_activity", "sigma",
-                 "overall_age", "overall_age_scaled", "overall_age_activity")
+bca_diagnostic <- scalar_ci |>
+  transmute(quantity, skewness, z0, a)
 
-scalar_points <- c(
-  R0_age               = R0_age,
-  R0_age_activity      = R0_age_activity,
-  sigma                = sigma_fc_twostage,
-  overall_age          = overall_size_age,
-  overall_age_scaled   = overall_size_age_scaled,
-  overall_age_activity = overall_size_age_activity
-)
-
-scalar_names <- c(
-  R0_age               = "R0 (age matrix)",
-  R0_age_activity      = "R0 (age/activity matrix)",
-  sigma                = "residual heterogeneity (sigma)",
-  overall_age          = "overall final size (age matrix)",
-  overall_age_scaled   = "overall final size (age matrix, rescaled)",
-  overall_age_activity = "overall final size (age/activity matrix)"
-)
-
-# resample membership, aligned row-for-row with boot_scalars, and the (fixed)
-# number of participants those indices refer to
-boot_membership <- map(boot_ok, "membership")
-n_participants  <- length(boot$canonical_ids)
-
-# BCa acceleration for every quantity in one jackknife-after-bootstrap pass
-accel <- bca_acceleration(boot_scalars[scalar_cols], boot_membership, n_participants)
-names(accel) <- scalar_cols
-
-bca_diagnostic <- map_dfr(scalar_cols, function(q) {
-  x   <- boot_scalars[[q]]
-  bc  <- bc_ci(x, scalar_points[[q]])
-  bca <- bca_ci(x, scalar_points[[q]], accel[[q]])
-  tibble(
-    quantity     = scalar_names[[q]],
-    skewness     = sample_skewness(x),
-    z0           = bc$z0,
-    a            = accel[[q]],
-    `BC 95% CI`  = sprintf("(%.3f, %.3f)", bc$bc_lower, bc$bc_upper),
-    `BCa 95% CI` = sprintf("(%.3f, %.3f)", bca$bca_lower, bca$bca_upper)
-  )
-})
-
-knitr::kable(bca_diagnostic, digits = c(0, 3, 3, 4, 0, 0))
+knitr::kable(bca_diagnostic, digits = c(0, 3, 3, 4))
 ```
 
-Across every quantity the bootstrap distribution is close to symmetric (`|skewness|` $\le$ `r sprintf("%.2f", max(abs(bca_diagnostic$skewness)))`) and the acceleration is negligible (`|a|` $<$ `r sprintf("%.3f", max(abs(bca_diagnostic$a)))`). As a result the BCa endpoints are indistinguishable from the BC endpoints (they agree to three decimal places, shifting by less than 0.1% of the point estimate). The plain bias-corrected intervals are therefore adequate, and we retain them throughout.
+Across every quantity the bootstrap distribution is close to symmetric (`|skewness|` $\le$ `r sprintf("%.2f", max(abs(scalar_ci$skewness)))`), the bias correction is modest (`|z0|` $\le$ `r sprintf("%.2f", max(abs(scalar_ci$z0)))`) and the acceleration is negligible (`|a|` $<$ `r sprintf("%.3f", max(abs(scalar_ci$a)))`). The BCa and percentile intervals in the table above therefore agree closely, confirming the intervals are well-behaved.
