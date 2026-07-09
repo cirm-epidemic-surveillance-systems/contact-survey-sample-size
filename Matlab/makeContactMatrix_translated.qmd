@@ -125,7 +125,11 @@ X <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
 Y <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
 
 # Build the assortative contact matrix
-M <- make_assortative_contact_matrix(X, Y, v, b)
+M <- make_assortative_contact_matrix(v = X,
+                                     p_pop = Y,
+                                     v = v,
+                                     sigma = sigma,
+                                     alpha = b)
 ```
 
 ### Visualise the contact matrix
@@ -193,7 +197,11 @@ b_values <- c(0, 5, 20, 40)
 map(
   b_values,
   \(b_val) {
-    M_b <- make_assortative_contact_matrix(X, Y, v, b_val)
+    M_b <- make_assortative_contact_matrix(v = X,
+                                     p_pop = Y,
+                                     v = v,
+                                     sigma = sigma,
+                                     alpha = b)
     expand_grid(y = x, x_val = x) |>
       mutate(M_val = as.vector(M_b), b = b_val)
   }

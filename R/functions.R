@@ -1092,14 +1092,18 @@ make_proportionate_contact_matrix <- function(v, p_pop) {
 #
 # v     : numeric vector of activity levels in each bin (length n_bins)
 # p_pop : numeric vector of population proportions per bin (length n_bins)
+# sigma : non-negative scalar standard deviation of log relative contact rates
 # alpha : non-negative scalar kernel width parameter
-make_assortative_contact_matrix <- function(v, p_pop, alpha) {
+make_assortative_contact_matrix <- function(v, p_pop, sigma, alpha) {
   n_bins <- length(v)
   p_pop  <- p_pop / sum(p_pop)
 
-  # Quantile midpoints derived from p_pop (matches MATLAB: x = 0.5*(c(1:end-1)+c(2:end)))
-  c_cum <- c(0, cumsum(p_pop))
-  x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
+  # convert bin activity levels to quantiles, based on sigma
+  x <- plnorm(v, meanlog = 0, sdlog = sigma)
+  
+  # # Quantile midpoints derived from p_pop (matches MATLAB: x = 0.5*(c(1:end-1)+c(2:end)))
+  # c_cum <- c(0, cumsum(p_pop))
+  # x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
 
   X  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
   Y  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
@@ -1145,16 +1149,20 @@ make_assortative_contact_matrix <- function(v, p_pop, alpha) {
 #
 # v        : numeric vector of activity levels in each bin (length n_bins)
 # p_pop    : numeric vector of population proportions per bin (length n_bins)
+# sigma    : non-negative scalar standard deviation of log relative contact rates
 # alpha    : non-negative scalar kernel width parameter
 # rel_fact : relaxation factor for fixed-point iteration (default 0.5)
 # tol      : convergence tolerance on sup-norm of relative update (default 1e-10)
-make_toms_contact_matrix <- function(v, p_pop, alpha, rel_fact = 0.5, tol = 1e-10) {
+make_toms_contact_matrix <- function(v, p_pop, sigma, alpha, rel_fact = 0.5, tol = 1e-10) {
   n_bins <- length(v)
   p_pop  <- p_pop / sum(p_pop)
 
-  # Quantile midpoints derived from p_pop
-  c_cum <- c(0, cumsum(p_pop))
-  x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
+  # convert bin activity levels to quantiles, based on sigma
+  x <- plnorm(v, meanlog = 0, sdlog = sigma)
+  
+  #   # Quantile midpoints derived from p_pop
+  #   c_cum <- c(0, cumsum(p_pop))
+  #   x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
 
   X  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
   Y  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
@@ -1212,6 +1220,7 @@ make_activity_matrix <- function(n_activity_bins, sigma, alpha, epsilon,
   assortative_activity <- make_toms_contact_matrix(
     v = activity_bins$activity,
     p_pop = activity_bins$fraction,
+    sigma = sigma,
     alpha = alpha)
   
   # fully proportionate matrix

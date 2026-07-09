@@ -369,6 +369,7 @@ Next we construct the fully-assortative activity-structured matrix, using Tom's 
 assortative_activity <- make_toms_contact_matrix(
   v = activity_bins$activity,
   p_pop = activity_bins$fraction,
+  sigma = sigma_fc_twostage,
   alpha = alpha)
 ```
 
