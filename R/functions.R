@@ -1490,6 +1490,60 @@ fc_final_size_pipeline <- function(contact_data,
   )
 }
 
+# By-age final size (and R0) for the age/activity contact matrix at a given
+# activity-assortativity kernel width (alpha) and assortativity level (epsilon).
+# The age-structured matrix and its population fractions are held fixed (passed
+# in), while the activity matrix is rebuilt for each (alpha, epsilon): the
+# activity classes are discretised (n_activity_bins Gauss-Hermite classes with
+# heterogeneity sigma), tiled with the age matrix, and the combined matrix's R0
+# and final size computed under a per-contact transmission probability beta.
+# Returns the age/activity R0 and the final size collapsed down to age groups,
+# with the numeric bin edges (age_lower, age_upper) parsed from the group label.
+age_activity_final_size <- function(age_matrix, age_fractions, sigma,
+                                    alpha, epsilon, beta,
+                                    n_activity_bins = 10) {
+
+  # activity matrix for these assortativity parameters, and its population
+  # fractions
+  activity_matrix <- make_activity_matrix(n_activity_bins = n_activity_bins,
+                                          sigma = sigma,
+                                          alpha = alpha,
+                                          epsilon = epsilon)
+  activity_fractions <- attr(activity_matrix, "activity_bins")$fraction
+
+  # combined age/activity matrix and population fractions
+  age_activity_matrix <- tile_matrices(age_matrix, activity_matrix)
+  age_activity_fractions <- tile_fractions(age_fractions, activity_fractions)
+
+  R0 <- get_eigenval(age_activity_matrix * beta)
+
+  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
+  # of final_size)
+  dummy <- as.matrix(rep(1, length(age_activity_fractions)))
+  mat_scaled <- age_activity_matrix /
+    get_eigenval(age_activity_matrix * age_activity_fractions)
+
+  size_aa <- final_size(r0 = R0,
+                        contact_matrix = mat_scaled,
+                        demography_vector = age_activity_fractions,
+                        susceptibility = dummy,
+                        p_susceptibility = dummy)
+
+  # collapse the age/activity final sizes down to age groups and parse the
+  # numeric bin edges from the group label
+  by_age <- size_aa |>
+    mutate(demo_grp = str_split_i(demo_grp, "-", 1)) |>
+    group_by(demo_grp) |>
+    summarise(p_infected = sum(p_infected * activity_fractions),
+              .groups = "drop") |>
+    mutate(
+      age_lower = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 2]),
+      age_upper = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 3])
+    )
+
+  list(R0 = R0, by_age = by_age)
+}
+
 # Draw a cluster (participant-level) bootstrap resample from a participant-level
 # contact dataset: sample the participants with replacement and give each drawn
 # participant a fresh unique part_id, so that a participant drawn more than once
