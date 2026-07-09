@@ -140,7 +140,7 @@ matrix_long_mike <- pmap(
     M_assort <- make_assortative_contact_matrix(v = v,
                                                 p_pop = p_pop,
                                                 sigma = sigma,
-                                                alpha = aval)
+                                                alpha = alpha)
     M_blend  <- make_blended_matrix(M_PM, M_assort, eps)
     expand_grid(y_val = x, x_val = x) |>
       mutate(
@@ -177,7 +177,6 @@ matrix_long_tom <- pmap(
                                              p_pop = p_pop,
                                              sigma = sigma,
                                              alpha = alpha)
-      make_toms_contact_matrix(v, p_pop, alpha)
     T_blend  <- make_blended_matrix(M_PM, T_assort, eps)
     expand_grid(y_val = x, x_val = x) |>
       mutate(
@@ -223,7 +222,7 @@ agg_long <- pmap(
     T_assort <- make_toms_contact_matrix(v = v,
                                          p_pop = p_pop,
                                          sigma = sigma,
-                                         alpha = aval)
+                                         alpha = alpha)
     T_blend  <- make_blended_matrix(M_PM, T_assort, eps)
     tibble(
       x       = x,
