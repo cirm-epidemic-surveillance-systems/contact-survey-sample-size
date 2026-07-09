@@ -1249,6 +1249,45 @@ make_activity_matrix <- function(n_activity_bins, sigma, alpha, epsilon,
   
 }
 
+# dominant eigenvalue of an analysis-3-style assortative activity matrix, built
+# from a given binning `method` (one of the schemes compared in analysis S1) with
+# `n_classes` bins, heterogeneity `sigma`, activity-assortativity kernel width
+# `alpha`, and assortativity level `epsilon`. Unlike make_activity_matrix() (which
+# only exposes the "gaussquad" and "even" schemes), this routes the binning
+# through get_activity_classes() so the quantile-midpoint, quantile-mean, and
+# Gaussian-quadrature schemes can all be compared for convergence. Returns the
+# blended (proportionate + assortative) matrix eigenvalue.
+activity_matrix_eigen <- function(n_classes, sigma, alpha, epsilon,
+                                  method = c("gaussquad",
+                                             "quantile2_mean",
+                                             "quantile_midpoint")) {
+  method <- match.arg(method)
+
+  activity_bins <- get_activity_classes(sigma = sigma,
+                                        n_classes = n_classes,
+                                        method = method)
+
+  # fully-assortative matrix (Tom's iterative normalisation, kernel width alpha)
+  assortative_activity <- make_toms_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction,
+    sigma = sigma,
+    alpha = alpha)
+
+  # fully-proportionate matrix
+  proportionate_activity <- make_proportionate_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction)
+
+  # blend according to epsilon, then take the dominant eigenvalue
+  activity_matrix <- make_blended_matrix(
+    M_PM = proportionate_activity,
+    M_assort = assortative_activity,
+    eps = epsilon)
+
+  get_eigenval(activity_matrix)
+}
+
 # given two matrices (e.g. an age-structured matrix and an activity matrix),
 # return a combined matrix tiling the two, with each cell giving the product of
 # the cell values of the two matrices. Attach the combined row/column names
