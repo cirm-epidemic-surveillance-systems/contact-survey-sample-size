@@ -28,7 +28,7 @@ B <- if (length(args) >= 1) as.integer(args[1]) else 1000L
 beta <- 0.1
 alpha <- 0.5
 epsilon <- 0.5
-n_activity_bins <- 10
+n_activity_bins <- 20
 max_age <- 90
 
 # population / demography is external census data, held fixed across bootstraps

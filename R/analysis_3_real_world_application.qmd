@@ -486,10 +486,10 @@ pop_bin <- fc_population |>
 age_fractions <- pop_bin / sum(pop_bin)
 ```
 
-Activity matrix, with 10 bins and Gaussian quadrature for bin sizes and activity levels
+Activity matrix, with 20 bins and Gaussian quadrature for bin sizes and activity levels
 
 ```{r}
-activity_matrix <- make_activity_matrix(n_activity_bins = 10,
+activity_matrix <- make_activity_matrix(n_activity_bins = 20,
                                         sigma = sigma_fc_twostage,
                                         alpha = 0.5,
                                         epsilon = 0.5)
@@ -624,7 +624,8 @@ make_final_size_panel <- function(epsilon) {
       sigma = sigma_fc_twostage,
       alpha = alpha,
       epsilon = epsilon,
-      beta = beta
+      beta = beta,
+      n_activity_bins = 20
     )
   })
   R0s <- vapply(res, `[[`, numeric(1), "R0")
