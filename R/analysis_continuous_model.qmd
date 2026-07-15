@@ -65,7 +65,10 @@ sweep_eps_alpha <- expand_grid(
     eigenval_mike = furrr::future_map2(
       eps, alpha,
       \(e, aval) {
-        M_assort <- make_assortative_contact_matrix(v, p_pop, aval)
+        M_assort <- make_assortative_contact_matrix(v = v,
+                                                    p_pop = p_pop,
+                                                    sigma = sigma,
+                                                    alpha = aval)
         get_eigenval(make_blended_matrix(M_PM, M_assort, e))
       },
       .options = furrr_options(seed = TRUE)
@@ -73,7 +76,10 @@ sweep_eps_alpha <- expand_grid(
     eigenval_tom = furrr::future_map2(
       eps, alpha,
       \(e, aval) {
-        T_assort <- make_toms_contact_matrix(v, p_pop, aval)
+        T_assort <- make_toms_contact_matrix(v = v,
+                                             p_pop = p_pop,
+                                             sigma = sigma,
+                                             alpha = aval)
         get_eigenval(make_blended_matrix(M_PM, T_assort, e))
       },
       .options = furrr_options(seed = TRUE)
@@ -94,7 +100,10 @@ sweep_sigma_alpha <- expand_grid(
       sigma_val, alpha,
       \(s, aval) {
         v_s <- qlnorm(x, meanlog = 0, sdlog = s)
-        M_assort <- make_assortative_contact_matrix(v_s, p_pop, aval)
+        M_assort <- make_assortative_contact_matrix(v = v_s,
+                                                    p_pop = p_pop,
+                                                    sigma = s,
+                                                    alpha = aval)
         get_eigenval(M_assort)   # eps = 1: pure assortative
       },
       .options = furrr_options(seed = TRUE)
@@ -103,7 +112,10 @@ sweep_sigma_alpha <- expand_grid(
       sigma_val, alpha,
       \(s, aval) {
         v_s <- qlnorm(x, meanlog = 0, sdlog = s)
-        T_assort <- make_toms_contact_matrix(v_s, p_pop, aval)
+        T_assort <- make_toms_contact_matrix(v = v_s,
+                                             p_pop = p_pop,
+                                             sigma = s,
+                                             alpha = aval)
         get_eigenval(T_assort)
       },
       .options = furrr_options(seed = TRUE)
@@ -125,7 +137,10 @@ plot_params <- expand_grid(
 matrix_long_mike <- pmap(
   plot_params,
   \(eps, alpha) {
-    M_assort <- make_assortative_contact_matrix(v, p_pop, alpha)
+    M_assort <- make_assortative_contact_matrix(v = v,
+                                                p_pop = p_pop,
+                                                sigma = sigma,
+                                                alpha = alpha)
     M_blend  <- make_blended_matrix(M_PM, M_assort, eps)
     expand_grid(y_val = x, x_val = x) |>
       mutate(
@@ -158,7 +173,10 @@ matrix_long_mike |>
 matrix_long_tom <- pmap(
   plot_params,
   \(eps, alpha) {
-    T_assort <- make_toms_contact_matrix(v, p_pop, alpha)
+    T_assort <- make_toms_contact_matrix(v = v,
+                                             p_pop = p_pop,
+                                             sigma = sigma,
+                                             alpha = alpha)
     T_blend  <- make_blended_matrix(M_PM, T_assort, eps)
     expand_grid(y_val = x, x_val = x) |>
       mutate(
@@ -195,9 +213,16 @@ For each selected (eps, b) combination, compare the column sums of the blended m
 agg_long <- pmap(
   plot_params,
   \(eps, alpha) {
-    M_assort <- make_assortative_contact_matrix(v, p_pop, alpha)
+    M_assort <- 
+      make_assortative_contact_matrix(v = v,
+                                      p_pop = p_pop,
+                                      sigma = sigma,
+                                      alpha = alpha)
     M_blend  <- make_blended_matrix(M_PM, M_assort, eps)
-    T_assort <- make_toms_contact_matrix(v, p_pop, alpha)
+    T_assort <- make_toms_contact_matrix(v = v,
+                                         p_pop = p_pop,
+                                         sigma = sigma,
+                                         alpha = alpha)
     T_blend  <- make_blended_matrix(M_PM, T_assort, eps)
     tibble(
       x       = x,

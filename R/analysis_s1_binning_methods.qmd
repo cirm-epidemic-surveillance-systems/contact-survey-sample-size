@@ -493,3 +493,212 @@ ggsave("figures/binning_eigenvalue_convergence.png",
 ![Convergence to the truth of the dominant eigenvalue of the activity-only contact matrix as the number of bins increases, for the two binning schemes, at three values of $\sigma$ (A: $\sigma = 0.5$; B: $\sigma = 1$; C: $\sigma = 2$). Horizontal dashed lines show the true eigenvalue; vertical dotted lines mark the fewest bins at which the Gaussian quadrature estimate is within 1% of the truth.](../figures/binning_eigenvalue_convergence.png){#fig-binning-eigenvalue}
 
 Across all values of $\sigma$ we see that the Gaussian quadrature scheme converges on the true eigenvalue of the activity-only contact matrix far more quickly than either evenly-sized-bin scheme (quantile midpoint and quantile mean). Even with the extreme $\sigma=2$, 12 bins are sufficient to approximate the eigenvalue to within 1%. With $\sigma=0.5$ (close to the estimate for the France data), 3 bins are sufficient to achieve the same high level of accuracy.
+
+#### Convergence under assortative mixing
+
+The eigenvalue convergence above uses a *proportionate* mixing activity matrix, for which an analytic eigenvalue is available. Our aim is to instead use *assortative* activity matrices, blending a proportionate and a fully-assortative matrix. These are governed by two further parameters: the width of the activity-assortativity kernel $\alpha$, and the overall degree of assortativity $\epsilon$. Here we confirm that the eigenvalue of the assortative activity matrix also converges as the number of bins increases, across a range of these parameters.
+
+There is no analytic solution for the eigenvalue in the assortative case, so rather than comparing against a known truth we simply check that each scheme's estimate stops changing as the number of bins grows. As a reference we take the Gaussian quadrature estimate at the largest bin counts (the best available approximation to the truth), and mark the fewest bins at which the Gaussian quadrature estimate first settles to within 1% of it.
+
+The Gaussian quadrature estimate carries a small even/odd sawtooth as the number of bins increases: odd bin counts place a quadrature node exactly at the centre of the distribution while even counts do not, which slightly shifts the mass placed in the extreme upper tail (where the eigenvalue is most sensitive under a sharp assortativity kernel). Whether odd or even bins give a better approximation varies with parameter choices. To get a reliable reference despite this, we average the Gaussian quadrature estimates at the two largest bin counts (one odd, one even), which cancels most of the sawtooth. We also report the absolute percentage difference between those two evaluations, and flag any parameter combination where it exceeds 0.5% (indicating the sawtooth has not fully decayed by the maximum number of bins, so the reference is correspondingly less certain).
+
+We fix $\sigma = 0.5$ (close to the France estimate) and sweep a $3 \times 3$ grid of kernel widths ($\alpha \in \{5, 20, 40\}$) and assortativity levels ($\epsilon \in \{0.5, 0.75, 1\}$). We exclude $\alpha = 0$ and $\epsilon = 0$, since either recovers the proportionate case already considered above. The matrices are constructed exactly as in analysis 3 (Tom's iterative-normalisation scheme for the fully-assortative matrix, blended with the proportionate matrix by $\epsilon$).
+
+```{r}
+#| message: false
+#| warning: false
+
+# fixed heterogeneity, and the assortativity grid (alpha = kernel width,
+# epsilon = degree of assortativity). alpha = 0 / epsilon = 0 are excluded as
+# they recover the proportionate case handled above.
+sigma_assort <- 0.5
+alpha_grid <- c(5, 20, 40)
+epsilon_grid <- c(0.5, 0.75, 1)
+
+assort_convergence <- expand_grid(
+  bins = seq(2, 30, by = 1),
+  alpha = alpha_grid,
+  epsilon = epsilon_grid,
+  method = c("quantile_midpoint",
+             "quantile2_mean",
+             "gaussquad")
+) |>
+  mutate(
+    eigenvalue = furrr::future_pmap_dbl(
+      list(bins, alpha, epsilon, method),
+      \(bins, alpha, epsilon, method) activity_matrix_eigen(
+        n_classes = bins,
+        sigma = sigma_assort,
+        alpha = alpha,
+        epsilon = epsilon,
+        method = method
+      ),
+      .options = furrr_options(seed = TRUE)
+    )
+  ) |>
+  # relabel methods for display, matching the proportionate-case figures above
+  mutate(
+    method = recode(
+      method,
+      quantile_midpoint = "quantile midpoint",
+      quantile2_mean = "quantile mean",
+      gaussquad = "Gaussian quadrature"
+    )
+  )
+```
+
+```{r}
+# facet labels (parsed expressions) for the alpha (rows) x epsilon (columns)
+# grid. Ordered factors so the panels appear in ascending numeric order (rather
+# than string-sorted, which would put alpha = 5 after alpha = 20/40).
+assort_convergence <- assort_convergence |>
+  mutate(
+    alpha_lab = factor(
+      paste0("alpha == ", alpha),
+      levels = paste0("alpha == ", sort(alpha_grid))
+    ),
+    epsilon_lab = factor(
+      paste0("epsilon == ", epsilon),
+      levels = paste0("epsilon == ", sort(epsilon_grid))
+    )
+  )
+
+# reference "converged" eigenvalue for each (alpha, epsilon). There is no
+# analytic truth in the assortative case, so we approximate it from the largest
+# bin counts. The Gaussian quadrature estimate carries a small even/odd
+# Gauss-Hermite sawtooth (odd bin counts place a node at the distribution centre,
+# even counts do not), so a single bin count is a slightly biased reference; we
+# average the two largest bin counts (one odd, one even) to cancel most of it.
+ref_bins <- sort(unique(assort_convergence$bins), decreasing = TRUE)[1:2]
+
+assort_reference <- assort_convergence |>
+  filter(method == "Gaussian quadrature", bins %in% ref_bins) |>
+  group_by(alpha, epsilon, alpha_lab, epsilon_lab) |>
+  summarise(reference = mean(eigenvalue), .groups = "drop")
+
+# residual uncertainty in that reference: the absolute % difference between the
+# two Gaussian quadrature evaluations we average (the largest two bin counts).
+# Where this is small the reference is reliable; where the sawtooth persists
+# (strong assortativity) it quantifies how much the two evaluations still differ.
+assort_ref_diff <- assort_convergence |>
+  filter(method == "Gaussian quadrature", bins %in% ref_bins) |>
+  left_join(assort_reference |> select(alpha, epsilon, reference),
+            by = c("alpha", "epsilon")) |>
+  group_by(alpha, epsilon) |>
+  summarise(
+    eig_lower_bin = eigenvalue[bins == min(ref_bins)],
+    eig_upper_bin = eigenvalue[bins == max(ref_bins)],
+    pct_diff = 100 * abs(eig_upper_bin - eig_lower_bin) / first(reference),
+    within_0.5pct = pct_diff < 0.5,
+    .groups = "drop"
+  )
+
+# report the per-panel differences, and flag any where the two evaluations we
+# average still disagree by more than 0.5% (i.e. the reference is less certain)
+assort_ref_diff
+
+if (any(!assort_ref_diff$within_0.5pct)) {
+  warning(
+    sprintf(
+      "reference from bins %d/%d differs by >0.5%% for: %s (residual sawtooth)",
+      ref_bins[2], ref_bins[1],
+      paste(
+        sprintf("alpha=%g,epsilon=%g (%.2f%%)",
+                assort_ref_diff$alpha[!assort_ref_diff$within_0.5pct],
+                assort_ref_diff$epsilon[!assort_ref_diff$within_0.5pct],
+                assort_ref_diff$pct_diff[!assort_ref_diff$within_0.5pct]),
+        collapse = "; "
+      )
+    )
+  )
+}
+
+# smallest number of bins for which the Gaussian quadrature estimate is within
+# 1% of that reference value, for each (alpha, epsilon)
+assort_threshold <- assort_convergence |>
+  filter(method == "Gaussian quadrature") |>
+  left_join(
+    assort_reference |> select(alpha, epsilon, reference),
+    by = c("alpha", "epsilon")
+  ) |>
+  filter(abs(eigenvalue - reference) / reference < 0.01) |>
+  group_by(alpha, epsilon, alpha_lab, epsilon_lab) |>
+  summarise(bins_1pct = min(bins), .groups = "drop")
+
+assort_convergence_plot <- assort_convergence |>
+  mutate(method = factor(method, levels = method_levels)) |>
+  ggplot(
+    aes(
+      x = bins,
+      y = eigenvalue,
+      group = method,
+      colour = method
+    )
+  ) +
+  geom_hline(
+    aes(yintercept = reference),
+    data = assort_reference,
+    linetype = 2,
+    linewidth = 0.8
+  ) +
+  geom_text(
+    aes(
+      y = reference,
+      label = "reference (mean of 29 & 30 bins)"
+    ),
+    data = assort_reference,
+    x = -Inf,
+    hjust = -0.05,
+    vjust = -0.6,
+    size = 2.7,
+    colour = "black",
+    inherit.aes = FALSE
+  ) +
+  geom_vline(
+    aes(xintercept = bins_1pct),
+    data = assort_threshold,
+    linetype = 3,
+    linewidth = 0.8,
+    colour = gq_colour
+  ) +
+  geom_text(
+    aes(
+      x = bins_1pct,
+      label = paste0(bins_1pct, " bins, <1%")
+    ),
+    data = assort_threshold,
+    y = -Inf,
+    hjust = -0.1,
+    vjust = -0.8,
+    size = 2.7,
+    colour = gq_colour,
+    inherit.aes = FALSE
+  ) +
+  geom_line(
+    linewidth = 1
+  ) +
+  coord_cartesian(clip = "off") +
+  facet_wrap(
+    alpha_lab ~ epsilon_lab,
+    scales = "free_y",
+    labeller = label_parsed
+  ) +
+  scale_y_continuous(
+    expand = expansion(mult = c(0.05, 0.12))
+  ) +
+  xlab("number of bins") +
+  ylab("dominant eigenvalue") +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+ggsave("figures/binning_eigenvalue_convergence_assortative.png",
+       plot = assort_convergence_plot,
+       bg = "white",
+       scale = 1,
+       width = 10,
+       height = 9)
+```
+
+![Convergence of the dominant eigenvalue of the *assortative* activity matrix as the number of bins increases, for the three binning schemes, at fixed $\sigma = 0.5$. Panels vary the activity-assortativity kernel width $\alpha$ (rows: 5, 20, 40) and the degree of assortativity $\epsilon$ (columns: 0.5, 0.75, 1). As there is no analytic truth in the assortative case, the horizontal dashed line shows the reference eigenvalue --- the mean of the Gaussian quadrature estimates at the two largest bin counts (29 and 30), which cancels most of the even/odd sawtooth --- and the vertical dotted line marks the fewest bins at which the Gaussian quadrature estimate first settles to within 1% of it.](../figures/binning_eigenvalue_convergence_assortative.png){#fig-binning-eigenvalue-assortative}
+
+As in the proportionate case, the Gaussian quadrature scheme settles far more quickly than either evenly-sized-bin scheme, across the whole grid of assortativity parameters. The two quantile schemes converge slowly and, at strong assortativity (large $\alpha$ and $\epsilon$), are still visibly biased even at 30 bins. Convergence is fastest at weak assortativity and slows as both $\alpha$ and $\epsilon$ increase --- in the most strongly-assortative corner ($\alpha = 40$, $\epsilon = 1$) the eigenvalue is most sensitive to the placement of bins in the extreme tail of the activity distribution, and this is also where the even/odd sawtooth persists most stubbornly: the two evaluations we average for the reference still differ by around 0.26% at 30 bins, compared with well under 0.02% for the milder combinations. Nonetheless, once the sawtooth is averaged out the Gaussian quadrature estimate stops changing appreciably within a modest number of bins across the whole grid.

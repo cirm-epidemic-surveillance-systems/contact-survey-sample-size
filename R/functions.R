@@ -1092,14 +1092,18 @@ make_proportionate_contact_matrix <- function(v, p_pop) {
 #
 # v     : numeric vector of activity levels in each bin (length n_bins)
 # p_pop : numeric vector of population proportions per bin (length n_bins)
+# sigma : non-negative scalar standard deviation of log relative contact rates
 # alpha : non-negative scalar kernel width parameter
-make_assortative_contact_matrix <- function(v, p_pop, alpha) {
+make_assortative_contact_matrix <- function(v, p_pop, sigma, alpha) {
   n_bins <- length(v)
   p_pop  <- p_pop / sum(p_pop)
 
-  # Quantile midpoints derived from p_pop (matches MATLAB: x = 0.5*(c(1:end-1)+c(2:end)))
-  c_cum <- c(0, cumsum(p_pop))
-  x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
+  # convert bin activity levels to quantiles, based on sigma
+  x <- plnorm(v, meanlog = 0, sdlog = sigma)
+  
+  # # Quantile midpoints derived from p_pop (matches MATLAB: x = 0.5*(c(1:end-1)+c(2:end)))
+  # c_cum <- c(0, cumsum(p_pop))
+  # x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
 
   X  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
   Y  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
@@ -1145,16 +1149,20 @@ make_assortative_contact_matrix <- function(v, p_pop, alpha) {
 #
 # v        : numeric vector of activity levels in each bin (length n_bins)
 # p_pop    : numeric vector of population proportions per bin (length n_bins)
+# sigma    : non-negative scalar standard deviation of log relative contact rates
 # alpha    : non-negative scalar kernel width parameter
 # rel_fact : relaxation factor for fixed-point iteration (default 0.5)
 # tol      : convergence tolerance on sup-norm of relative update (default 1e-10)
-make_toms_contact_matrix <- function(v, p_pop, alpha, rel_fact = 0.5, tol = 1e-10) {
+make_toms_contact_matrix <- function(v, p_pop, sigma, alpha, rel_fact = 0.5, tol = 1e-10) {
   n_bins <- length(v)
   p_pop  <- p_pop / sum(p_pop)
 
-  # Quantile midpoints derived from p_pop
-  c_cum <- c(0, cumsum(p_pop))
-  x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
+  # convert bin activity levels to quantiles, based on sigma
+  x <- plnorm(v, meanlog = 0, sdlog = sigma)
+  
+  #   # Quantile midpoints derived from p_pop
+  #   c_cum <- c(0, cumsum(p_pop))
+  #   x     <- 0.5 * (c_cum[1:n_bins] + c_cum[2:(n_bins + 1)])
 
   X  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = TRUE)
   Y  <- matrix(x, nrow = n_bins, ncol = n_bins, byrow = FALSE)
@@ -1212,6 +1220,7 @@ make_activity_matrix <- function(n_activity_bins, sigma, alpha, epsilon,
   assortative_activity <- make_toms_contact_matrix(
     v = activity_bins$activity,
     p_pop = activity_bins$fraction,
+    sigma = sigma,
     alpha = alpha)
   
   # fully proportionate matrix
@@ -1238,6 +1247,45 @@ make_activity_matrix <- function(n_activity_bins, sigma, alpha, epsilon,
   # and return
   activity_matrix
   
+}
+
+# dominant eigenvalue of an analysis-3-style assortative activity matrix, built
+# from a given binning `method` (one of the schemes compared in analysis S1) with
+# `n_classes` bins, heterogeneity `sigma`, activity-assortativity kernel width
+# `alpha`, and assortativity level `epsilon`. Unlike make_activity_matrix() (which
+# only exposes the "gaussquad" and "even" schemes), this routes the binning
+# through get_activity_classes() so the quantile-midpoint, quantile-mean, and
+# Gaussian-quadrature schemes can all be compared for convergence. Returns the
+# blended (proportionate + assortative) matrix eigenvalue.
+activity_matrix_eigen <- function(n_classes, sigma, alpha, epsilon,
+                                  method = c("gaussquad",
+                                             "quantile2_mean",
+                                             "quantile_midpoint")) {
+  method <- match.arg(method)
+
+  activity_bins <- get_activity_classes(sigma = sigma,
+                                        n_classes = n_classes,
+                                        method = method)
+
+  # fully-assortative matrix (Tom's iterative normalisation, kernel width alpha)
+  assortative_activity <- make_toms_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction,
+    sigma = sigma,
+    alpha = alpha)
+
+  # fully-proportionate matrix
+  proportionate_activity <- make_proportionate_contact_matrix(
+    v = activity_bins$activity,
+    p_pop = activity_bins$fraction)
+
+  # blend according to epsilon, then take the dominant eigenvalue
+  activity_matrix <- make_blended_matrix(
+    M_PM = proportionate_activity,
+    M_assort = assortative_activity,
+    eps = epsilon)
+
+  get_eigenval(activity_matrix)
 }
 
 # given two matrices (e.g. an age-structured matrix and an activity matrix),
@@ -1488,6 +1536,60 @@ fc_final_size_pipeline <- function(contact_data,
     overall = overall,
     by_age = by_age
   )
+}
+
+# By-age final size (and R0) for the age/activity contact matrix at a given
+# activity-assortativity kernel width (alpha) and assortativity level (epsilon).
+# The age-structured matrix and its population fractions are held fixed (passed
+# in), while the activity matrix is rebuilt for each (alpha, epsilon): the
+# activity classes are discretised (n_activity_bins Gauss-Hermite classes with
+# heterogeneity sigma), tiled with the age matrix, and the combined matrix's R0
+# and final size computed under a per-contact transmission probability beta.
+# Returns the age/activity R0 and the final size collapsed down to age groups,
+# with the numeric bin edges (age_lower, age_upper) parsed from the group label.
+age_activity_final_size <- function(age_matrix, age_fractions, sigma,
+                                    alpha, epsilon, beta,
+                                    n_activity_bins = 10) {
+
+  # activity matrix for these assortativity parameters, and its population
+  # fractions
+  activity_matrix <- make_activity_matrix(n_activity_bins = n_activity_bins,
+                                          sigma = sigma,
+                                          alpha = alpha,
+                                          epsilon = epsilon)
+  activity_fractions <- attr(activity_matrix, "activity_bins")$fraction
+
+  # combined age/activity matrix and population fractions
+  age_activity_matrix <- tile_matrices(age_matrix, activity_matrix)
+  age_activity_fractions <- tile_fractions(age_fractions, activity_fractions)
+
+  R0 <- get_eigenval(age_activity_matrix * beta)
+
+  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
+  # of final_size)
+  dummy <- as.matrix(rep(1, length(age_activity_fractions)))
+  mat_scaled <- age_activity_matrix /
+    get_eigenval(age_activity_matrix * age_activity_fractions)
+
+  size_aa <- final_size(r0 = R0,
+                        contact_matrix = mat_scaled,
+                        demography_vector = age_activity_fractions,
+                        susceptibility = dummy,
+                        p_susceptibility = dummy)
+
+  # collapse the age/activity final sizes down to age groups and parse the
+  # numeric bin edges from the group label
+  by_age <- size_aa |>
+    mutate(demo_grp = str_split_i(demo_grp, "-", 1)) |>
+    group_by(demo_grp) |>
+    summarise(p_infected = sum(p_infected * activity_fractions),
+              .groups = "drop") |>
+    mutate(
+      age_lower = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 2]),
+      age_upper = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 3])
+    )
+
+  list(R0 = R0, by_age = by_age)
 }
 
 # Draw a cluster (participant-level) bootstrap resample from a participant-level

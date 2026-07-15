@@ -49,6 +49,7 @@ dominant_eigenvalue <- function(sigma, alpha, n_classes) {
   M <- make_toms_contact_matrix(
     v = activity_bins$activity,
     p_pop = activity_bins$fraction,
+    sigma = sigma,
     alpha = alpha
   )
   get_eigenval(M)
@@ -125,6 +126,7 @@ dominant_eigenvalue_method <- function(method, sigma, alpha) {
   M <- make_toms_contact_matrix(
     v = bins$activity,
     p_pop = bins$fraction,
+    sigma = sigma,
     alpha = alpha
   )
   get_eigenval(M)

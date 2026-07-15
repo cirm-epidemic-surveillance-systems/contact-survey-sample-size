@@ -369,6 +369,7 @@ Next we construct the fully-assortative activity-structured matrix, using Tom's 
 assortative_activity <- make_toms_contact_matrix(
   v = activity_bins$activity,
   p_pop = activity_bins$fraction,
+  sigma = sigma_fc_twostage,
   alpha = alpha)
 ```
 
@@ -485,10 +486,10 @@ pop_bin <- fc_population |>
 age_fractions <- pop_bin / sum(pop_bin)
 ```
 
-Activity matrix, with 10 bins and Gaussian quadrature for bin sizes and activity levels
+Activity matrix, with 20 bins and Gaussian quadrature for bin sizes and activity levels
 
 ```{r}
-activity_matrix <- make_activity_matrix(n_activity_bins = 10,
+activity_matrix <- make_activity_matrix(n_activity_bins = 20,
                                         sigma = sigma_fc_twostage,
                                         alpha = 0.5,
                                         epsilon = 0.5)
@@ -560,6 +561,132 @@ size_age_activity_by_age <- size_age_activity |>
   ) |>
   summarise(
     p_infected = sum(p_infected * activity_fractions))
+```
+
+## Sensitivity to the assortativity parameters
+
+The age/activity matrix above uses a single arbitrary choice of the two assortativity parameters: $\alpha$, the width of the activity-assortativity kernel, and $\epsilon$, the overall degree of assortativity. To see how the final attack rate distribution responds to these, we sweep the age/activity final size over a range of activity-assortativity kernel widths $\alpha$ at three levels of the assortativity parameter $\epsilon$, holding everything else --- the age-structured matrix, the estimated residual heterogeneity $\sigma$, and the number of Gauss-Hermite activity classes --- fixed. In each panel we also show the age-only matrix final size (in blue) for reference. These curves use the point estimates only; no bootstrap uncertainty is computed here.
+
+```{r}
+# assortativity parameters to sweep over: kernel widths alpha at three
+# levels of the assortativity parameter epsilon
+alpha_values <- c(0, 2, 4, 6, 8, 10)
+epsilon_values <- c(0, 0.5, 1)
+
+# colours for the alpha lines: pink (low alpha) through to dark purple (high
+# alpha), matching the eigenvalue_vs_sigma.qmd figure (darker portion of the
+# ColorBrewer RdPu palette)
+alpha_colours <- colorRampPalette(
+  RColorBrewer::brewer.pal(9, "RdPu")[4:9]
+)(length(alpha_values))
+```
+
+For a given $(\alpha, \epsilon)$ we rebuild the activity matrix, tile it with the (fixed) age matrix, and compute the R0 and the by-age final size in exactly the same way as for the single age/activity scenario above. This is wrapped up in `age_activity_final_size()` (defined in `R/functions.R`), which takes the fixed age matrix and fractions along with the heterogeneity $\sigma$, the assortativity parameters, and the transmission probability $\beta$, and returns the age/activity R0 and the age-collapsed final size.
+
+We also need the age-only final size (computed above as `size_age`, under R0 = `r sprintf("%.2f", R0_age)`) as an (age_lower, age_upper, p_infected) tibble to draw behind the activity curves in each panel.
+
+```{r}
+# age-only by-age final size, with numeric bin edges, shared across all panels
+age_only_by_age <- size_age |>
+  mutate(
+    age_lower = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 2]),
+    age_upper = as.numeric(str_match(demo_grp, "([0-9]+)[^0-9]+([0-9]+)")[, 3])
+  ) |>
+  select(age_lower, age_upper, p_infected)
+```
+
+We build one panel per value of $\epsilon$. Each panel draws the age-only curve first (so it sits behind), then the age/activity curves for increasing $\alpha$ on top. The legend gives the R0 for each curve, as elsewhere; because R0 depends on $\epsilon$ as well as $\alpha$, each panel carries its own legend.
+
+```{r}
+# turn a set of bin-edged final sizes into piecewise-constant step data: add a
+# terminal point at the upper edge of the final bin for each series so the step
+# spans the full width of every age bin
+make_steps <- function(df) {
+  df |>
+    group_by(series) |>
+    arrange(age_lower, .by_group = TRUE) |>
+    group_modify(~ bind_rows(
+      .x,
+      mutate(slice_tail(.x, n = 1), age_lower = age_upper)
+    )) |>
+    ungroup()
+}
+
+# a single final-size panel for one value of epsilon
+make_final_size_panel <- function(epsilon) {
+
+  # age/activity final sizes for each alpha at this epsilon, holding the age
+  # matrix, fractions, sigma and beta fixed
+  res <- lapply(alpha_values, function(alpha) {
+    age_activity_final_size(
+      age_matrix = age_matrix,
+      age_fractions = age_fractions,
+      sigma = sigma_fc_twostage,
+      alpha = alpha,
+      epsilon = epsilon,
+      beta = beta,
+      n_activity_bins = 20
+    )
+  })
+  R0s <- vapply(res, `[[`, numeric(1), "R0")
+
+  age_activity_df <- map2_dfr(
+    res, alpha_values,
+    ~ .x$by_age |>
+      transmute(age_lower, age_upper, p_infected, series = paste0("a", .y))
+  )
+
+  # combine the age-only curve (drawn behind) with the age/activity curves;
+  # factor level order sets both the legend order and the draw (z) order, so
+  # "age" first puts the blue line behind the pink-to-purple lines
+  series_keys <- c("age", paste0("a", alpha_values))
+  combined <- bind_rows(
+    age_only_by_age |> mutate(series = "age"),
+    age_activity_df
+  ) |>
+    mutate(series = factor(series, levels = series_keys))
+
+  # colours: age-only in the same blue as the age-structured panel elsewhere,
+  # the alpha lines in the pink-to-purple ramp
+  series_colours <- c("#08519C", alpha_colours)
+  names(series_colours) <- series_keys
+
+  # legend labels carrying each curve's R0
+  series_labels <- c(
+    sprintf("age matrix (R0 = %.2f)", R0_age),
+    sprintf("α = %g (R0 = %.2f)", alpha_values, R0s)
+  )
+  names(series_labels) <- series_keys
+
+  ggplot(make_steps(combined),
+         aes(x = age_lower, y = p_infected, colour = series)) +
+    geom_step(direction = "hv", linewidth = 0.8) +
+    scale_colour_manual(values = series_colours, labels = series_labels) +
+    scale_y_continuous(labels = scales::label_percent()) +
+    coord_cartesian(ylim = c(0, 1)) +
+    labs(
+      x = "age",
+      y = "final attack rate",
+      colour = NULL,
+      title = bquote(epsilon == .(epsilon))
+    ) +
+    theme_minimal() +
+    theme(legend.position = "bottom") +
+    guides(colour = guide_legend(ncol = 1))
+}
+
+final_size_assortativity_plot <-
+  wrap_plots(lapply(epsilon_values, make_final_size_panel), nrow = 1) +
+  plot_annotation(tag_levels = "A")
+
+ggsave("figures/final_size_assortativity.png",
+       plot = final_size_assortativity_plot,
+       bg = "white",
+       width = 14,
+       height = 5.5,
+       dpi = 300)
+
+final_size_assortativity_plot
 ```
 
 ## Bootstrap uncertainty
