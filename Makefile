@@ -14,7 +14,7 @@ QUARTO ?= $(shell command -v quarto 2>/dev/null || echo /Applications/RStudio.ap
 SUP_NAME := analysis_s1_binning_methods
 SUP_QMD  := R/$(SUP_NAME).qmd
 OUT_DIR  := overleaf
-FIGS     := binning_illustration.png binning_moment_convergence.png binning_eigenvalue_convergence.png
+FIGS     := binning_illustration.png binning_moment_convergence.png binning_eigenvalue_convergence.png binning_eigenvalue_convergence_assortative.png
 
 .PHONY: supplement
 supplement:
