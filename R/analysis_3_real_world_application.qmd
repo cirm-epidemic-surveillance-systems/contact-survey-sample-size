@@ -565,12 +565,12 @@ size_age_activity_by_age <- size_age_activity |>
 
 ## Sensitivity to the assortativity parameters
 
-The age/activity matrix above uses a single arbitrary choice of the two assortativity parameters: $\alpha$, the width of the activity-assortativity kernel, and $\epsilon$, the overall degree of assortativity. To see how the final attack rate distribution responds to these, we sweep the age/activity final size over a range of activity-assortativity kernel widths $\alpha$ (from 0 to 40) at three levels of the assortativity parameter $\epsilon$ (0, 0.5 and 1), holding everything else --- the age-structured matrix, the estimated residual heterogeneity $\sigma$, and the 10 Gauss-Hermite activity classes --- fixed. In each panel we also show the age-only matrix final size (in blue) for reference. These curves use the point estimates only; no bootstrap uncertainty is computed here.
+The age/activity matrix above uses a single arbitrary choice of the two assortativity parameters: $\alpha$, the width of the activity-assortativity kernel, and $\epsilon$, the overall degree of assortativity. To see how the final attack rate distribution responds to these, we sweep the age/activity final size over a range of activity-assortativity kernel widths $\alpha$ at three levels of the assortativity parameter $\epsilon$, holding everything else --- the age-structured matrix, the estimated residual heterogeneity $\sigma$, and the number of Gauss-Hermite activity classes --- fixed. In each panel we also show the age-only matrix final size (in blue) for reference. These curves use the point estimates only; no bootstrap uncertainty is computed here.
 
 ```{r}
-# assortativity parameters to sweep over: kernel widths alpha (0 to 40) at three
+# assortativity parameters to sweep over: kernel widths alpha at three
 # levels of the assortativity parameter epsilon
-alpha_values <- c(0, 10, 20, 30, 40)
+alpha_values <- c(0, 2, 4, 6, 8, 10)
 epsilon_values <- c(0, 0.5, 1)
 
 # colours for the alpha lines: pink (low alpha) through to dark purple (high
