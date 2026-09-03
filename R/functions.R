@@ -240,11 +240,11 @@ partition_variance_lmer <- function (model) {
     ) |>
     mutate(
       grp = case_when(
-        grp == "part_age" ~ "between ages",
-        grp == "part_gender" ~ "between genders",
-        grp == "part_occupation" ~ "between occupations",
-        grp == "Residual" ~ "within individuals",
-        .default = "between individuals (unexplained)",
+        grp == "part_age" ~ "Explained by age",
+        grp == "part_gender" ~ "Explained by gender",
+        grp == "part_occupation" ~ "Explained by occupation",
+        grp == "Residual" ~ "Within individuals",
+        .default = "Between individuals (unexplained)",
       )
     ) |>
     rename(
@@ -295,11 +295,11 @@ partition_variance_glmer <- function (model) {
     ) |>
     mutate(
       partition = case_when(
-        grp == "part_age" ~ "between ages",
-        grp == "part_gender" ~ "between genders",
-        grp == "part_occupation" ~ "between occupations",
-        grp %in% c("obs", "poisson_sampling") ~ "within individuals",
-        .default = "between individuals (unexplained)",
+        grp == "part_age" ~ "Explained by age",
+        grp == "part_gender" ~ "Explained by gender",
+        grp == "part_occupation" ~ "Explained by occupation",
+        grp %in% c("obs", "poisson_sampling") ~ "Within individuals",
+        .default = "Between individuals (unexplained)",
       )
     ) |>
     # pool the observation-level RE and Poisson sampling into "within
@@ -344,20 +344,20 @@ format_percent_label_1dp <- function(proportion) {
 make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
 
   # semantic colour palette:
-  # - within individuals: light grey - the dominant component, but the one of
+  # - Within individuals: light grey - the dominant component, but the one of
   #   least significance in the downstream analyses, so de-emphasised
-  # - between individuals (unexplained): green, matching the activity-structured
+  # - Between individuals (unexplained): green, matching the activity-structured
   #   contact matrix panel in analysis 3
-  # - between ages: blue, matching the age-structured contact matrix panel in
+  # - Explained by age: blue, matching the age-structured contact matrix panel in
   #   analysis 3
-  # - between genders / occupations: distinguishable shades of the age blue, as
+  # - Explained by gender / occupation: distinguishable shades of the age blue, as
   #   they are largely confounded with age
   colour_palette <- c(
-    "within individuals" = "grey88",
-    "between individuals (unexplained)" = "#41AE76",
-    "between ages" = "#2171B5",
-    "between genders" = "#9ECAE1",
-    "between occupations" = "#08306B"
+    "Within individuals" = "grey88",
+    "Between individuals (unexplained)" = "#41AE76",
+    "Explained by age" = "#2171B5",
+    "Explained by gender" = "#9ECAE1",
+    "Explained by occupation" = "#08306B"
   )
 
   plot_data <- partitioning |>
@@ -396,12 +396,12 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
   # nudge outside labels away from the bars: left for the first study, right for
   # the rest
   n_studies <- length(unique(plot_data$Study))
-  # sit the labels tight against the outer edge of each bar: nudge just far
-  # enough to clear the bar
+  # push the labels out into the panel margin, clear of the bar: the x scale
+  # above reserves the room, and ggrepel stops them running off the panel edge
   outside_nudge <- ifelse(
     as.integer(factor(labels_outside$Study)) <= n_studies / 2,
-    -0.5,
-    0.5
+    -0.83,
+    0.83
   )
   # align labels to the bar edge: the first (left-hand) study's labels are
   # right-aligned (right edge against the bar, text into the margin), the rest
@@ -435,11 +435,15 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
     scale_fill_manual(values = colour_palette, drop = drop) +
     # matched colour scale for the leader-line labels (no separate legend)
     scale_colour_manual(values = colour_palette, guide = "none") +
+    # the same horizontal room in every panel, whether or not it has
+    # leader-line labels: enough for the label text to sit beside the bars, and
+    # applied unconditionally so bar widths match when panels are combined
+    scale_x_discrete(expand = expansion(add = 1)) +
     xlab(NULL) +
     theme_minimal()
 
-  # only add the leader-line layer (and the extra horizontal room it needs) when
-  # there are small slices to label this way
+  # only add the leader-line layer when there are small slices to label this way
+  # (the horizontal room it needs is already in the x scale above)
   if (nrow(labels_outside) > 0) {
     p <- p +
       ggrepel::geom_text_repel(
@@ -452,16 +456,22 @@ make_barplot <- function(partitioning, drop = TRUE, label_threshold = 0.05) {
         nudge_x = outside_nudge,
         direction = "y",
         hjust = outside_hjust,
-        size = 4,
+        size = 3.5,
         min.segment.length = 0,
         segment.colour = "black",
         segment.size = 0.25,
-        box.padding = 0.1,
+        # spread the labels vertically: repulsion separates labels for
+        # adjacent thin slices down the margin rather than letting them stack
+        # against each other. Keep box.padding small -- ggrepel confines the
+        # padded box to the panel, so a large padding pins the labels against
+        # the bar and makes nudge_x a no-op
+        box.padding = 0.2,
+        point.padding = 0.2,
+        force = 8,
+        max.overlaps = Inf,
         show.legend = FALSE,
         seed = 2026
-      ) +
-      # just enough horizontal room for the label text to sit beside the bars
-      scale_x_discrete(expand = expansion(add = 1))
+      )
   }
 
   p
