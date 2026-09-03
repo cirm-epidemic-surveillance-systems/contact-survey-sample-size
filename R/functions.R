@@ -1610,6 +1610,55 @@ age_activity_final_size <- function(age_matrix, age_fractions, sigma,
   list(R0 = R0, by_age = by_age)
 }
 
+# overall final size of an epidemic on an activity-structured (no age) contact
+# matrix, for activity heterogeneity `sigma`, assortativity kernel width
+# `alpha` and assortativity level `epsilon`, under a per-contact transmission
+# probability `beta`. This is the activity-only counterpart of
+# age_activity_final_size(), and computes the final size the same way: R0 from
+# the dominant eigenvalue of the beta-scaled matrix, and the final size from
+# that R0 and the matrix rescaled for finalsize::final_size().
+#
+# The activity matrix has a dominant eigenvalue of 1 when sigma = 0, so `beta`
+# is exactly the R0 a homogeneous population would have, and the R0 here is
+# `beta` multiplied by the relative R0 that heterogeneity and assortativity buy
+# (the quantity plotted in R/eigenvalue_vs_sigma.qmd). Returns both, along with
+# the overall final size: the population-weighted mean across activity classes.
+#
+# Note sigma must be > 0. At exactly sigma = 0 the activity distribution is
+# degenerate, so every class maps to the same activity quantile, the
+# assortativity kernel flattens to proportionate mixing, and alpha stops having
+# any effect - a discontinuity rather than the sigma -> 0 limit.
+activity_final_size <- function(sigma, alpha, epsilon, beta,
+                                n_activity_bins = 100) {
+
+  stopifnot(sigma > 0)
+
+  activity_matrix <- make_activity_matrix(n_activity_bins = n_activity_bins,
+                                          sigma = sigma,
+                                          alpha = alpha,
+                                          epsilon = epsilon)
+  activity_fractions <- attr(activity_matrix, "activity_bins")$fraction
+
+  R0 <- get_eigenval(activity_matrix * beta)
+
+  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
+  # of final_size)
+  dummy <- as.matrix(rep(1, length(activity_fractions)))
+  mat_scaled <- activity_matrix /
+    get_eigenval(activity_matrix * activity_fractions)
+
+  size <- final_size(r0 = R0,
+                     contact_matrix = mat_scaled,
+                     demography_vector = activity_fractions,
+                     susceptibility = dummy,
+                     p_susceptibility = dummy)
+
+  list(
+    R0 = R0,
+    final_size = sum(size$p_infected * activity_fractions)
+  )
+}
+
 # Draw a cluster (participant-level) bootstrap resample from a participant-level
 # contact dataset: sample the participants with replacement and give each drawn
 # participant a fresh unique part_id, so that a participant drawn more than once
