@@ -283,6 +283,7 @@ moment_convergence <- moment_long |>
     inherit.aes = FALSE
   ) +
   xlab("Number of bins") +
+  ylab("Estimate") +
   labs(colour = "Method") +
   geom_line(
     linewidth = 1
@@ -303,7 +304,10 @@ moment_convergence <- moment_long |>
   facet_wrap(
     moment ~ sigma,
     scales = "free_y",
-    labeller = labeller(sigma = label_parsed)
+    labeller = labeller(
+      sigma = label_parsed,
+      moment = as_labeller(c(mean = "Mean", sd = "SD"))
+    )
   ) +
   scale_y_continuous(
     expand = expansion(mult = c(0.05, 0.12))
