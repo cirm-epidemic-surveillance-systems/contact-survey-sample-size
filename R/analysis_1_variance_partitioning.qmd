@@ -124,33 +124,25 @@ partitioning_all <- bind_rows(
 Arrange them in a multipanel figure, for supplemental materials
 
 ```{r}
-# panel C ("additional predictors") is the only panel containing all five
+# panel C ("all demographic variables") is the only panel containing all five
 # components, so let it carry the legend (its keys all have data and render
 # correctly); suppress the legend on A and B so a single, shared legend is
 # collected for the whole figure
+panel_none <- make_barplot(partitioning_none) +
+  ggtitle("No demographic variables") +
+  theme(legend.position = "none")
 panel_age <- make_barplot(partitioning_age) +
   ggtitle("Only age variable") +
   theme(legend.position = "none")
-panel_none <- make_barplot(partitioning_none) +
-  ggtitle("No demographic variables") +
-  theme(legend.position = "none") +
-  # match the x-axis padding panel C gets from its leader-line labels, so the
-  # bars in panels B and C have the same width
-  scale_x_discrete(expand = expansion(add = 0.9))
-# raise the threshold so the (small) between-ages slice is labelled with a
-# leader line too, rather than crammed inside the bar next to between-genders
+# raise the threshold so the (small) explained-by-age slice is labelled with a
+# leader line too, rather than crammed inside the bar next to explained-by-gender
 panel_all <- make_barplot(partitioning_all, label_threshold = 0.07) +
   ggtitle("All demographic variables")
 
-# panel A (age only) large on the left; B (no covariates) and C (all covariates)
-# stacked on the right
-design <- "
-AB
-AC
-"
-
-varpart_all <- panel_age + panel_none + panel_all +
-  plot_layout(design = design, guides = "collect") +
+# three columns, adding levels of explanation from left to right: no demographic
+# variables, then age alone, then all demographic variables
+varpart_all <- panel_none + panel_age + panel_all +
+  plot_layout(nrow = 1, guides = "collect") +
   plot_annotation(
     # title = "Partitioning variance in daily log contact rates",
     tag_levels = "A"
@@ -160,19 +152,19 @@ ggsave("figures/varpart_all.png",
        plot = varpart_all,
        bg = "white",
        scale = 1,
-       width = 9,
-       height = 6)
+       width = 12,
+       height = 5)
 ```
 
 Tabulate the same percentages (formatted as in the figure) for each model and study.
 
 ```{r}
 component_levels <- c(
-  "within individuals",
-  "between individuals (unexplained)",
-  "between ages",
-  "between genders",
-  "between occupations"
+  "Within individuals",
+  "Between individuals (unexplained)",
+  "Explained by age",
+  "Explained by gender",
+  "Explained by occupation"
 )
 model_levels <- c(
   "No demographic variables",
@@ -222,7 +214,7 @@ The same partition after excluding the within-individual component, with the rem
 ```{r}
 caption_between <- "Between-individual variance (%), partitioned among the age/gender/occupation and residual components (i.e. excluding within-individual variance and renormalising to 100%), for each model and study."
 partition_between <- partitioning_all_models |>
-  filter(partition != "within individuals") |>
+  filter(partition != "Within individuals") |>
   group_by(Study, Model) |>
   mutate(proportion = proportion / sum(proportion)) |>
   ungroup() |>
