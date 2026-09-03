@@ -36,9 +36,15 @@ alpha_values <- c(0, 10, 20, 30, 40)
 # number of quadrature points used to approximate the continuous activity
 # distribution
 n_classes <- 100
+
+# colours for the alpha lines: pink (low alpha) through to dark purple (high
+# alpha), using the darker portion of the ColorBrewer RdPu palette
+alpha_colours <- colorRampPalette(
+  RColorBrewer::brewer.pal(9, "RdPu")[4:9]
+)(length(alpha_values))
 ```
 
-For each $(\sigma, \alpha)$ we build the activity classes by quadrature, construct the assortative matrix, and take its dominant eigenvalue. When $\sigma = 0$ everyone shares the same activity level, so the matrix is homogeneous with dominant eigenvalue 1 for any $\alpha$.
+For each $(\sigma, \alpha)$ we build the activity classes by quadrature, construct the assortative matrix, and take its dominant eigenvalue. When $\sigma = 0$ everyone shares the same activity level, so the matrix is homogeneous with dominant eigenvalue 1 for any $\alpha$. The eigenvalue is therefore already expressed relative to the homogeneous case: $\lambda$ is the factor by which $R_0$ is multiplied by introducing activity heterogeneity $\sigma$ and assortativity $\alpha$, and we plot it as a relative $R_0$.
 
 ```{r}
 dominant_eigenvalue <- function(sigma, alpha, n_classes) {
@@ -73,11 +79,11 @@ eigen_grid <- expand_grid(
 eigenvalue_plot <- eigen_grid |>
   ggplot(aes(x = sigma, y = lambda, colour = alpha)) +
   geom_line(linewidth = 0.8) +
-  scale_colour_viridis_d(end = 0.9, direction = -1) +
+  scale_colour_manual(values = alpha_colours) +
   labs(
-    x = expression("activity heterogeneity (" * sigma * ")"),
-    y = expression("dominant eigenvalue (" * lambda * ")"),
-    colour = expression("assortativity (" * alpha * ")")
+    x = expression("Activity heterogeneity (" * sigma * ")"),
+    y = expression("Relative " * R[0]),
+    colour = expression("Assortativity (" * alpha * ")")
   ) +
   theme_minimal()
 
@@ -153,12 +159,12 @@ eigen_grid_methods <- expand_grid(
 comparison_plot <- eigen_grid_methods |>
   ggplot(aes(x = sigma, y = lambda, colour = alpha, linetype = method)) +
   geom_line(linewidth = 0.7) +
-  scale_colour_viridis_d(end = 0.9, direction = -1) +
+  scale_colour_manual(values = alpha_colours) +
   labs(
-    x = expression("activity heterogeneity (" * sigma * ")"),
-    y = expression("dominant eigenvalue (" * lambda * ")"),
-    colour = expression("assortativity (" * alpha * ")"),
-    linetype = "binning method"
+    x = expression("Activity heterogeneity (" * sigma * ")"),
+    y = expression("Relative " * R[0]),
+    colour = expression("Assortativity (" * alpha * ")"),
+    linetype = "Binning method"
   ) +
   theme_minimal()
 
