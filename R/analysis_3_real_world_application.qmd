@@ -396,7 +396,7 @@ We can visuliase this
 
 ```{r}
 activity_mat_plot <- autoplot_contact_matrix(activity_matrix, palette = 2) +
-  ggtitle("activity-structured")
+  ggtitle("Activity-structured")
 activity_mat_plot
 ```
 
@@ -434,7 +434,7 @@ age_contact_pred <- predict_contacts(fc_model_aggregated,
 
 age_matrix <- conmat::predictions_to_matrix(age_contact_pred)
 age_mat_plot <- autoplot_contact_matrix(age_matrix, palette = 1) +
-  ggtitle("age-structured")
+  ggtitle("Age-structured")
 age_mat_plot
 ```
 
@@ -448,7 +448,7 @@ We can visualise these together
 
 ```{r}
 age_activity_mat_plot <- autoplot_contact_matrix(age_activity_matrix, palette = 7) +
-  ggtitle("age/activity-structured")
+  ggtitle("Age/activity-structured")
 age_activity_mat_plot
 
 ```
@@ -653,7 +653,7 @@ make_final_size_panel <- function(epsilon) {
 
   # legend labels carrying each curve's R0
   series_labels <- c(
-    sprintf("age matrix (R0 = %.2f)", R0_age),
+    sprintf("Age matrix (R0 = %.2f)", R0_age),
     sprintf("α = %g (R0 = %.2f)", alpha_values, R0s)
   )
   names(series_labels) <- series_keys
@@ -665,8 +665,8 @@ make_final_size_panel <- function(epsilon) {
     scale_y_continuous(labels = scales::label_percent()) +
     coord_cartesian(ylim = c(0, 1)) +
     labs(
-      x = "age",
-      y = "final attack rate",
+      x = "Age",
+      y = "Final attack rate",
       colour = NULL,
       title = bquote(epsilon == .(epsilon))
     ) +
@@ -738,9 +738,9 @@ Plot these age distributions
 # scenario labels, including the actual R0 each final size was computed under
 # (ordered as they should appear in the legend)
 scenario_labels <- c(
-  age          = sprintf("age matrix (R0 = %.2f)", R0_age),
-  age_activity = sprintf("age/activity matrix (R0 = %.2f)", R0_age_activity),
-  age_scaled   = sprintf("age matrix, rescaled (R0 = %.2f)", R0_age_activity)
+  age          = sprintf("Age matrix (R0 = %.2f)", R0_age),
+  age_activity = sprintf("Age/activity matrix (R0 = %.2f)", R0_age_activity),
+  age_scaled   = sprintf("Age matrix, rescaled (R0 = %.2f)", R0_age_activity)
 )
 
 # scenario colours matching the illustrative contact matrices: the two age
@@ -831,9 +831,9 @@ final_size_plot <- ggplot() +
   scale_y_continuous(labels = scales::label_percent()) +
   coord_cartesian(ylim = c(0, 1)) +
   labs(
-    x = "age",
-    y = "final attack rate",
-    colour = "scenario"
+    x = "Age",
+    y = "Final attack rate",
+    colour = "Scenario"
   ) +
   theme_minimal()
 

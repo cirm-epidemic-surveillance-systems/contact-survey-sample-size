@@ -66,7 +66,7 @@ p_target <- ggplot() +
   xlim(0, xmax) +
   labs(
     title = "Target distribution",
-    x = expression("activity level (" * italic(v) * ")"),
+    x = expression("Activity level (" * italic(v) * ")"),
     y = expression("p(" * italic(v) * ")")
   ) +
   theme_minimal()
@@ -82,8 +82,8 @@ p_quantile <- ggplot(quantile_classes,
   ylim(0, max(quantile_classes$fraction) * 1.1) +
   labs(
     title = "Quantile mean",
-    x = expression("activity level (" * italic(v) * ")"),
-    y = "population fraction"
+    x = expression("Activity level (" * italic(v) * ")"),
+    y = "Population fraction"
   ) +
   theme_minimal()
 
@@ -98,8 +98,8 @@ p_midpoint <- ggplot(midpoint_classes,
   ylim(0, max(midpoint_classes$fraction) * 1.1) +
   labs(
     title = "Quantile midpoint",
-    x = expression("activity level (" * italic(v) * ")"),
-    y = "population fraction"
+    x = expression("Activity level (" * italic(v) * ")"),
+    y = "Population fraction"
   ) +
   theme_minimal()
 
@@ -114,8 +114,8 @@ p_gq <- ggplot(gq_classes,
   ylim(0, max(gq_classes$fraction) * 1.1) +
   labs(
     title = "Gaussian quadrature",
-    x = expression("activity level (" * italic(v) * ")"),
-    y = "population fraction"
+    x = expression("Activity level (" * italic(v) * ")"),
+    y = "Population fraction"
   ) +
   theme_minimal()
 
@@ -168,8 +168,8 @@ estimates <- expand_grid(
   mutate(
     method = recode(
       method,
-      quantile_midpoint = "quantile midpoint",
-      quantile2_mean = "quantile mean",
+      quantile_midpoint = "Quantile midpoint",
+      quantile2_mean = "Quantile mean",
       gaussquad = "Gaussian quadrature"
     )
   )
@@ -183,7 +183,7 @@ estimates <- expand_grid(
 gq_colour <- scales::hue_pal()(3)[3]
 
 # method display order: Gaussian quadrature last so its line is drawn on top
-method_levels <- c("quantile midpoint", "quantile mean", "Gaussian quadrature")
+method_levels <- c("Quantile midpoint", "Quantile mean", "Gaussian quadrature")
 
 moment_long <- estimates |>
   pivot_longer(
@@ -252,7 +252,7 @@ moment_convergence <- moment_long |>
   geom_text(
     aes(
       y = true,
-      label = "true value"
+      label = "True value"
     ),
     data = moment_truth,
     x = -Inf,
@@ -282,7 +282,8 @@ moment_convergence <- moment_long |>
     colour = gq_colour,
     inherit.aes = FALSE
   ) +
-  xlab("number of bins") +
+  xlab("Number of bins") +
+  labs(colour = "Method") +
   geom_line(
     linewidth = 1
   ) +
@@ -352,8 +353,8 @@ eigenvalue_convergence <- expand_grid(
   mutate(
     method = recode(
       method,
-      quantile_midpoint = "quantile midpoint",
-      quantile2_mean = "quantile mean",
+      quantile_midpoint = "Quantile midpoint",
+      quantile2_mean = "Quantile mean",
       gaussquad = "Gaussian quadrature"
     )
   )
@@ -422,7 +423,7 @@ eigenvalue_convergence_plot <- eigenvalue_long |>
   geom_text(
     aes(
       y = true,
-      label = "true value"
+      label = "True value"
     ),
     data = true_eigenval |> mutate(sigma = paste0("sigma == ", sigma)),
     x = -Inf,
@@ -477,8 +478,9 @@ eigenvalue_convergence_plot <- eigenvalue_long |>
   scale_y_continuous(
     expand = expansion(mult = c(0.05, 0.12))
   ) +
-  xlab("number of bins") +
-  ylab("dominant eigenvalue") +
+  xlab("Number of bins") +
+  ylab("Dominant eigenvalue") +
+  labs(colour = "Method") +
   theme_minimal() +
   theme(legend.position = "bottom")
 
@@ -540,8 +542,8 @@ assort_convergence <- expand_grid(
   mutate(
     method = recode(
       method,
-      quantile_midpoint = "quantile midpoint",
-      quantile2_mean = "quantile mean",
+      quantile_midpoint = "Quantile midpoint",
+      quantile2_mean = "Quantile mean",
       gaussquad = "Gaussian quadrature"
     )
   )
@@ -655,7 +657,7 @@ assort_convergence_plot <- assort_convergence |>
   geom_text(
     aes(
       y = reference,
-      label = "reference (mean of 29 & 30 bins)"
+      label = "Reference (mean of 29 & 30 bins)"
     ),
     data = assort_reference,
     x = -Inf,
@@ -697,8 +699,9 @@ assort_convergence_plot <- assort_convergence |>
   scale_y_continuous(
     expand = expansion(mult = c(0.05, 0.12))
   ) +
-  xlab("number of bins") +
-  ylab("dominant eigenvalue") +
+  xlab("Number of bins") +
+  ylab("Dominant eigenvalue") +
+  labs(colour = "Method") +
   theme_minimal() +
   theme(legend.position = "bottom")
 
