@@ -347,12 +347,12 @@ Now we have our estimate of the sigma parameter, we can construct an activity-st
 
 Then we can construct the age/activity contact matrix as the kronecker product of the age-structured matrix and the activity-structured matrices, and compute the population fractions for each combined population bin from the products of the fractions from the two models.
 
-To construct an activity-structured contact matrix we need to select a number of bins to discretise the continuous activity distribution, and determine the parameters of the activity matrix - the degree of assortativity epsilon, and the range of assortativity along activity levels alpha. We use arbitrary values to begin with.
+To construct an activity-structured contact matrix we need to select a number of bins to discretise the continuous activity distribution, and determine the parameters of the activity matrix - the degree of assortativity epsilon, and the range of assortativity along activity levels alpha. We use full assortativity (`epsilon` = 1), and a kernel width `alpha` giving a modest but non-negligible level of assortativity by activity level. These are shared with the bootstrap in `R/bootstrap_analysis_3.R`, which must be re-run if they change.
 
 ```{r}
 n_activity_bins <- 4
-alpha <- 0.5
-epsilon <- 0.5
+alpha <- 10
+epsilon <- 1
 ```
 
 Next, we compute the discretisation bins of the continuous activity level distribution: the fraction of the population in each bin, and the average activity in the bin. For visualisation here we use evenly-sized bins, so that the assortative patterns are clearly visible, rather than the contact rates being dominated by the different population fractions in each bin.
@@ -491,8 +491,8 @@ Activity matrix, with 20 bins and Gaussian quadrature for bin sizes and activity
 ```{r}
 activity_matrix <- make_activity_matrix(n_activity_bins = 20,
                                         sigma = sigma_fc_twostage,
-                                        alpha = 0.5,
-                                        epsilon = 0.5)
+                                        alpha = alpha,
+                                        epsilon = epsilon)
 activity_fractions <- attr(activity_matrix, "activity_bins")$fraction
 ```
 
