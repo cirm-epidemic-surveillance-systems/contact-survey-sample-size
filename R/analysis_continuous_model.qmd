@@ -161,8 +161,8 @@ matrix_long_mike |>
     cols = vars(paste0("alpha = ", alpha))
   ) +
   labs(
-    x    = "activity level quantile of individual (x)",
-    y    = "activity level quantile of contact (y)",
+    x    = "Activity level quantile of individual (x)",
+    y    = "Activity level quantile of contact (y)",
     fill = "M(x, y)",
     title = "Mike's method: contact matrix for selected (eps, alpha)"
   ) +
@@ -197,8 +197,8 @@ matrix_long_tom |>
     cols = vars(paste0("alpha = ", alpha))
   ) +
   labs(
-    x    = "activity level quantile of individual (x)",
-    y    = "activity level quantile of contact (y)",
+    x    = "Activity level quantile of individual (x)",
+    y    = "Activity level quantile of contact (y)",
     fill = "M(x, y)",
     title = "Tom's method: contact matrix for selected (eps, alpha)"
   ) +
@@ -250,8 +250,8 @@ agg_long |>
     cols = vars(paste0("alpha = ", alpha))
   ) +
   labs(
-    x      = "activity level quantile",
-    y      = "total contact rate",
+    x      = "Activity level quantile",
+    y      = "Total contact rate",
     colour = NULL,
     linetype = NULL,
     title  = "Column sums of blended matrix vs. activity distribution"
@@ -320,7 +320,7 @@ sweep_sigma_alpha |>
   facet_wrap(~ method) +
   labs(
     x      = expression(sigma ~ "(activity level SD)"),
-    y      = "dominant eigenvalue",
+    y      = "Dominant eigenvalue",
     colour = expression(alpha),
     title  = "Dominant eigenvalue vs. sigma for selected alpha values (eps = 1)"
   ) +

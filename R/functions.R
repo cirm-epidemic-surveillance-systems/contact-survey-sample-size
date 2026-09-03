@@ -1375,6 +1375,14 @@ autoplot_contact_matrix <- function(contact_matrix, palette = 1) {
       direction = 1, 
       trans = "sqrt"
     ) +
+    # generic labels: this plots age, activity and combined age/activity
+    # matrices, so the axes name the direction of contact rather than the
+    # stratification
+    labs(
+      x = "From",
+      y = "To",
+      fill = "Contacts"
+    ) +
     theme_minimal() +
     theme(
       axis.text = element_text(
