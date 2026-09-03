@@ -26,8 +26,8 @@ B <- if (length(args) >= 1) as.integer(args[1]) else 1000L
 
 # fixed configuration, shared with the point-estimate analysis in the qmd
 beta <- 0.1
-alpha <- 0.5
-epsilon <- 0.5
+alpha <- 10
+epsilon <- 1
 n_activity_bins <- 20
 max_age <- 90
 

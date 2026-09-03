@@ -1399,8 +1399,8 @@ autoplot_contact_matrix <- function(contact_matrix, palette = 1) {
 fc_final_size_pipeline <- function(contact_data,
                                    population,
                                    beta = 0.1,
-                                   alpha = 0.5,
-                                   epsilon = 0.5,
+                                   alpha = 10,
+                                   epsilon = 1,
                                    n_activity_bins = 10,
                                    max_age = 90) {
 
