@@ -1060,6 +1060,39 @@ get_eigenval <- function(matrix) {
   Re(eigen(matrix)$values[1])
 }
 
+# Prepare a contact matrix for finalsize::final_size().
+#
+# final_size() wants a *per-capita* contact matrix -- the contact rate between
+# one individual of each pair of groups -- and applies the population structure
+# itself, via its demography_vector argument. The matrices used here are not in
+# that form: the contacted group's population fraction is already built into the
+# rows. conmat's matrices have the contact age group in the rows (its
+# participant age groups are the columns), and make_proportionate_contact_matrix()
+# likewise puts p_pop on the rows, so a tiled age/activity matrix carries it on
+# the rows in both margins.
+#
+# Passing such a matrix straight to final_size() therefore counts the population
+# structure twice, which biases the final size whenever the groups differ in
+# size -- badly so for Gauss-Hermite activity classes, whose weights vary over
+# many orders of magnitude. (With equal-sized bins the double count is a uniform
+# rescale and cancels, which is why it went unnoticed.) So divide the population
+# fractions back out of the rows, then rescale so that (matrix * fractions) has
+# a dominant eigenvalue of 1, as final_size() requires.
+#
+# R0 is unaffected: it is the dominant eigenvalue of the next-generation matrix,
+# which is what these matrices already are, so get_eigenval(matrix * beta) stays
+# as it is.
+# Fractions must all be positive. Gauss-Hermite weights fall away so steeply
+# that the outermost ones underflow to exactly zero somewhere above ~40 classes,
+# and those classes cannot be divided out. They hold no population, so a caller
+# that might hit this should drop them first (see activity_final_size()); the
+# check here is so that it fails loudly rather than returning Inf.
+final_size_contact_matrix <- function(matrix, fractions) {
+  stopifnot(all(fractions > 0))
+  per_capita <- sweep(matrix, 1, fractions, "/")
+  per_capita / get_eigenval(per_capita * fractions)
+}
+
 # get it faster (but mor approximately) using the power method
 fast_eigenval <- function(matrix, tol = 0.001, maxiter = 1000) {
   eig <- fastmatrix::power.method(matrix,
@@ -1491,11 +1524,11 @@ fc_final_size_pipeline <- function(contact_data,
   dummy_age <- as.matrix(rep(1, n_age))
   dummy_age_activity <- as.matrix(rep(1, n_age_activity))
 
-  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
-  # of final_size)
-  age_matrix_scaled <- age_matrix / get_eigenval(age_matrix * age_fractions)
-  age_activity_matrix_scaled <- age_activity_matrix /
-    get_eigenval(age_activity_matrix * age_activity_fractions)
+  # convert to per-capita contact matrices for final_size() (see
+  # final_size_contact_matrix() for why the raw matrices cannot be passed in)
+  age_matrix_scaled <- final_size_contact_matrix(age_matrix, age_fractions)
+  age_activity_matrix_scaled <- final_size_contact_matrix(age_activity_matrix,
+                                                          age_activity_fractions)
 
   size_age <- final_size(r0 = R0_age,
                          contact_matrix = age_matrix_scaled,
@@ -1583,11 +1616,10 @@ age_activity_final_size <- function(age_matrix, age_fractions, sigma,
 
   R0 <- get_eigenval(age_activity_matrix * beta)
 
-  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
-  # of final_size)
+  # convert to a per-capita contact matrix for final_size()
   dummy <- as.matrix(rep(1, length(age_activity_fractions)))
-  mat_scaled <- age_activity_matrix /
-    get_eigenval(age_activity_matrix * age_activity_fractions)
+  mat_scaled <- final_size_contact_matrix(age_activity_matrix,
+                                          age_activity_fractions)
 
   size_aa <- final_size(r0 = R0,
                         contact_matrix = mat_scaled,
@@ -1624,14 +1656,17 @@ age_activity_final_size <- function(age_matrix, age_fractions, sigma,
 # (the quantity plotted in R/eigenvalue_vs_sigma.qmd). Returns both, along with
 # the overall final size: the population-weighted mean across activity classes.
 #
-# Note sigma must be > 0. At exactly sigma = 0 the activity distribution is
-# degenerate, so every class maps to the same activity quantile, the
-# assortativity kernel flattens to proportionate mixing, and alpha stops having
-# any effect - a discontinuity rather than the sigma -> 0 limit.
+# At sigma = 0 the population is homogeneous, so every alpha gives the same
+# answer: with no variation in activity level there is nothing for the
+# assortativity kernel to sort on.
+#
+# The number of classes matters most in the demanding corner of the parameter
+# space (large sigma with sharp assortativity), where 20 classes is still 2.4%
+# short of the converged final size at sigma = 1, alpha = 40; 100 is converged
+# to 5 decimal places there and everywhere below it.
 activity_final_size <- function(sigma, alpha, epsilon, beta,
                                 n_activity_bins = 100) {
 
-  stopifnot(sigma > 0)
 
   activity_matrix <- make_activity_matrix(n_activity_bins = n_activity_bins,
                                           sigma = sigma,
@@ -1641,11 +1676,17 @@ activity_final_size <- function(sigma, alpha, epsilon, beta,
 
   R0 <- get_eigenval(activity_matrix * beta)
 
-  # rescale so that (matrix * fractions) has an eigenvalue of 1 (a requirement
-  # of final_size)
+  # drop any classes whose Gauss-Hermite weight has underflowed to exactly zero.
+  # They contain no population, so this is exact rather than an approximation,
+  # and it leaves a matrix the population fractions can be divided out of. R0 is
+  # taken above, from the full matrix, so it is unaffected either way
+  keep <- activity_fractions > 0
+  activity_matrix <- activity_matrix[keep, keep, drop = FALSE]
+  activity_fractions <- activity_fractions[keep] / sum(activity_fractions[keep])
+
+  # convert to a per-capita contact matrix for final_size()
   dummy <- as.matrix(rep(1, length(activity_fractions)))
-  mat_scaled <- activity_matrix /
-    get_eigenval(activity_matrix * activity_fractions)
+  mat_scaled <- final_size_contact_matrix(activity_matrix, activity_fractions)
 
   size <- final_size(r0 = R0,
                      contact_matrix = mat_scaled,

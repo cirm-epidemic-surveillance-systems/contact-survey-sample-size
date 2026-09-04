@@ -13,6 +13,8 @@ Heterogenising the population always increases $R_0$ (the eigenvalue figure), bu
 -   **Panel A --- homogeneous $R_0$ held at 0.9.** The transmission probability $\beta$ is fixed, at a value that could not sustain an epidemic in a homogeneous population. As $\sigma$ rises the realised $R_0$ climbs through 1 and the final size lifts off zero. Assortativity brings that threshold forward, because it raises $R_0$ faster.
 -   **Panel B --- realised $R_0$ held at 3.** Here $\beta$ is *lowered* as $\sigma$ rises, exactly enough to keep the realised $R_0$ at 3. With the $R_0$ effect held out, only the concentrating effect remains, and the final size falls with $\sigma$ --- further for more assortative mixing.
 
+At $\sigma = 0$ there is no variation in activity level for the assortativity kernel to sort on, so every $\alpha$ gives the same final size and the curves in each panel start from a common point.
+
 The shallow strip under each panel makes the difference explicit: it shows both $R_0$s over the same $\sigma$ axis, with the one held constant drawn flat in grey and the one left free coloured by $\alpha$. The dotted line marks the epidemic threshold $R_0 = 1$.
 
 ```{r}
@@ -27,18 +29,16 @@ source("R/functions.R")
 The $\sigma$ and $\alpha$ grids, the number of quadrature points, and the line colours all match the eigenvalue figure, so the two can be read side by side.
 
 ```{r}
-# activity heterogeneity (sd of the log activity distribution). The sweep starts
-# just above zero: at exactly sigma = 0 the activity distribution is degenerate,
-# every class maps to the same activity quantile, and the assortativity kernel
-# flattens to proportionate mixing, so all the alpha curves would collapse onto
-# a single point that is not the limit of the curves approaching it
-sigma_grid <- seq(0.025, 1, by = 0.025)
+# activity heterogeneity (sd of the log activity distribution)
+sigma_grid <- seq(0, 1, by = 0.025)
 
 # assortativity kernel width, matching the eigenvalue figure
 alpha_values <- c(0, 10, 20, 30, 40)
 
-# number of quadrature points used to approximate the continuous activity
-# distribution
+# number of quadrature classes used to discretise the activity distribution,
+# matching the eigenvalue figure. This many is needed in the demanding corner of
+# the sweep: at sigma = 1 with alpha = 40, 20 classes is 2.4% short of the
+# converged final size, while 100 agrees with it to 5 decimal places
 n_classes <- 100
 
 # fully-assortative blending, matching the main analysis

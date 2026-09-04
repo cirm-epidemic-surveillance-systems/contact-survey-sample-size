@@ -523,9 +523,26 @@ n_age_activity <- length(age_activity_fractions)
 dummy_age <- as.matrix(rep(1, n_age))
 dummy_age_activity <- as.matrix(rep(1, n_age_activity))
 
-# scale the contact matrices, so that when multiplied by age fractions they have an eigenvalue of exactly 1 (an undocumented requirement of final_size)
-age_matrix_scaled <- age_matrix / get_eigenval(age_matrix * age_fractions)
-age_activity_matrix_scaled <- age_activity_matrix / get_eigenval(age_activity_matrix * age_activity_fractions)
+# final_size() wants a *per-capita* contact matrix - the contact rate between one
+# individual and one other - and applies the population structure itself, through
+# its demography_vector argument. Our matrices are next-generation matrices, in
+# which the contacted group's population fraction is already built into the rows
+# (conmat returns the contact age group in the rows, and the activity matrix is
+# constructed the same way). Passing them straight in would count the population
+# structure twice, which biases the final size whenever the groups differ in
+# size. So divide the population fractions back out of the rows first.
+age_matrix_per_capita <- sweep(age_matrix, 1, age_fractions, "/")
+age_activity_matrix_per_capita <- sweep(age_activity_matrix, 1,
+                                        age_activity_fractions, "/")
+
+# then scale them, so that when multiplied by the population fractions they have an eigenvalue of exactly 1 (an undocumented requirement of final_size)
+age_matrix_scaled <- age_matrix_per_capita /
+  get_eigenval(age_matrix_per_capita * age_fractions)
+age_activity_matrix_scaled <- age_activity_matrix_per_capita /
+  get_eigenval(age_activity_matrix_per_capita * age_activity_fractions)
+
+# (R/functions.R wraps these same two steps up as final_size_contact_matrix(),
+# which the bootstrap pipeline uses - keep the two in step)
 
 # age contact matrix with age R0
 size_age <- final_size(r0 = R0_age,
@@ -663,7 +680,7 @@ make_final_size_panel <- function(epsilon) {
     geom_step(direction = "hv", linewidth = 0.8) +
     scale_colour_manual(values = series_colours, labels = series_labels) +
     scale_y_continuous(labels = scales::label_percent()) +
-    coord_cartesian(ylim = c(0, 1)) +
+    coord_cartesian(ylim = c(0, 0.5)) +
     labs(
       x = "Age",
       y = "Final attack rate",
