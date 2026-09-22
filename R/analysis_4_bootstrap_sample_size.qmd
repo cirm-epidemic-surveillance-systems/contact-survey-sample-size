@@ -1,0 +1,882 @@
+---
+title: "Analysis 4 - Bootstrap uncertainty vs sample size"
+format: html
+editor: visual
+---
+
+## Bootstrap uncertainty in contact-pattern eigenvalues
+
+This analysis quantifies how the uncertainty in estimated contact patterns (measured as the dominant eigenvalue of an age/activity-structured contact matrix, a proxy for R0) shrinks as survey sample size increases. We apply a participant-cluster bootstrap approach to two repeated-contact survey datasets (Hong Kong and French Connection), following the figure structure of the reference study [bristol-vaccine-centre/contact-sample-size](https://github.com/bristol-vaccine-centre/contact-sample-size) (scatter+density "Figure 2" style, SD-vs-sample-size), but using **this repo's own paper's formalism** to build the matrices: an age-structured contact matrix estimated from the survey data, augmented via a Kronecker product with an activity-heterogeneity matrix built from Gaussian-quadrature activity classes and an assortativity kernel (Tom's iterative-normalisation method), with the activity-heterogeneity parameter $\sigma_{ind}$ re-estimated from the resampled repeated-measures data on every bootstrap replicate.
+
+## Methods
+
+### Goal and approach
+
+We estimate the dominant eigenvalue of an age/activity-structured contact matrix as a proxy for the basic reproduction number (R0), and quantify how sampling uncertainty in this estimate shrinks as the number of survey participants increases. Two distinct sources of uncertainty are tracked separately:
+
+- **Statistical uncertainty** in $\sigma_{ind}$ (activity-level heterogeneity) and in R0 at a *given, fixed* assortativity level $\alpha$ — this is genuine sampling uncertainty, and should shrink as sample size grows. Estimating $\sigma_{ind}$ specifically requires *repeated* contact measurements per participant, since a single observation per person cannot separate consistent between-individual differences from day-to-day noise.
+- **Structural uncertainty** in $\alpha$ (assortativity) itself — the paper states directly that $\alpha$ is not identifiable from either dataset at any sample size, since a survey never records the activity level of a participant's *contacts*, only their age. So this source of uncertainty should **not** shrink with sample size, no matter how much data is collected.
+
+### Cluster-bootstrap procedure
+
+For each sample size in a specified grid (Hong Kong: 50 to 1400 by 50s; French Connection: 50 to 1700 by 50s), we perform the following resample-and-recompute procedure `numreps` times:
+
+1. Sample `n` participant IDs uniformly **with replacement** from the full set of unique real participants.
+2. For each draw (including repeated draws of the same real participant), pull **all** of that participant's rows (all their repeat days/waves/measurements) as a cluster, and concatenate the resampled records into a single dataset.
+3. Relabel each draw as a distinct "virtual participant" (i.e. if real participant #42 is drawn 3 times, it yields 3 separate virtual participants in the resampled dataset, all sharing the same underlying data but now treated as independent survey respondents).
+4. Bin participant age and contact age into predefined age bands, count contacts per (participant age band, contact age band) pair, and divide by the number of distinct virtual participants in each participant age band to obtain the raw age-structured contact matrix $C^{(Age)}$.
+5. **Re-estimate $\sigma_{ind}$** from the same resampled data: fit `lmer(log1p(total_contacts) ~ (1|age_band) + (1|virtual_participant))` and take the participant-level random-effect SD. This is the step that genuinely depends on repeated contacts.
+6. Build $m=7$ activity classes via Gaussian quadrature scaled by $\sigma_{ind}$ (`get_activity_classes()`), and for each of 3 fixed assortativity values $\alpha \in \{5, 10, 20\}$ (the paper's own sensitivity grid — see `Paper/analysis_s1_binning_methods.tex`), build the activity-structured matrix $C^{(Activity)}$ using **Tom's** iterative-normalisation kernel method (`make_toms_contact_matrix()` — confirmed as the method used in the paper's own analysis, not Mike's alternative also present in `functions.R`).
+7. Kronecker-combine $C^{(Age)} \otimes C^{(Activity)}$ for each $\alpha$, and take the dominant eigenvalue of each (`get_eigenval()`), plus the dominant eigenvalue of $C^{(Age)}$ alone (the "age-only", $\sigma=0$ baseline).
+
+This mirrors the BCa-style cluster resampling by participant described in `Paper/main.tex` (recomputing the age-structured matrix and $\sigma$ on every bootstrap replicate), adapted from the reference repo's sample-size-sweep framework, applied to datasets with genuine repeated contact measurements (multiple reporting days per participant in Hong Kong; multiple waves and study days per participant in French Connection).
+
+### Age-band schemes and data preparation
+
+**Hong Kong:** Age bands are the 5 groups built into the survey's contact column names: 0–4, 5–19, 20–39, 40–64, 65+. Participant ages are binned into these same bands using simple cutoffs.
+
+**French Connection:** Age bands are 10-year groups: 0–9, 10–19, ..., 60–69, 70+ (bands 0–7), via `band(age) = min(floor(age / 10), 7)`. Missing contact ages are imputed **once, at the outset** (not re-drawn per replicate, for computational tractability), by drawing uniformly from the reported age range.
+
+### Interpretation of outputs
+
+For each dataset we report, as a function of sample size: (1) the bootstrap distribution of $\sigma_{ind}$ (scatter+density, and its SD with a $1/\sqrt{n}$ reference curve) — this should narrow as sample size grows, since it is estimable from the data; (2) the bootstrap distribution of the normalised dominant eigenvalue, separately for the age-only model and each of the 3 $\alpha$ values — the **mean** level of each of these four series should stay flat and separated across sample size (structural uncertainty from unidentifiable $\alpha$ does not shrink), while the **spread** (SD) within each series should shrink with sample size (statistical uncertainty does shrink). Eigenvalues are normalised by the mean age-only eigenvalue at the largest sample size, so 1.0 represents the (approximately) full-survey age-only estimate, and the augmented-model series sit above it by an amount that reflects how much unmeasured activity heterogeneity inflates R0.
+
+## Load packages and functions
+
+```{r}
+#| message: false
+#| warning: false
+
+library(tidyverse)
+library(furrr)
+library(patchwork)
+library(lme4)
+
+source("R/functions.R")
+
+# Set up parallel execution
+plan(multisession, workers = availableCores() - 1)
+
+# Fixed assortativity grid, taken from the paper's own sensitivity analysis
+# (Paper/analysis_s1_binning_methods.tex: alpha in {5, 10, 20})
+alpha_values <- c(5, 10, 20)
+n_activity_classes <- 7
+```
+
+## Hong Kong Bootstrap Analysis
+
+### Load and prepare data
+
+```{r}
+#| cache: true
+
+# Read Hong Kong data
+hk_raw <- read_csv("data/hongkong/HongKongData.csv")
+
+# Rename hyphenated columns to clean names
+hk_data <- hk_raw |>
+  rename(
+    part_id = pid,
+    part_age = age,
+    contacts_total = n.contact.total,
+    contacts_0_4 = `n.contact.0-4`,
+    contacts_5_19 = `n.contact.5-19`,
+    contacts_20_39 = `n.contact.20-39`,
+    contacts_40_64 = `n.contact.40-64`,
+    contacts_65p = `n.contact.65+`
+  ) |>
+  select(part_id, part_age, contacts_total, contacts_0_4, contacts_5_19, contacts_20_39, contacts_40_64, contacts_65p) |>
+  # Bin participant age into the same age bands
+  mutate(
+    part_band = case_when(
+      part_age <= 4 ~ "0-4",
+      part_age <= 19 ~ "5-19",
+      part_age <= 39 ~ "20-39",
+      part_age <= 64 ~ "40-64",
+      TRUE ~ "65+"
+    ),
+    part_band = factor(part_band, levels = c("0-4", "5-19", "20-39", "40-64", "65+"))
+  )
+
+# Create a list of data per participant (for cluster resampling)
+hk_by_pid <- split(hk_data, hk_data$part_id)
+hk_pids <- names(hk_by_pid)
+
+glimpse(hk_data)
+```
+
+### Bootstrap functions for Hong Kong
+
+```{r}
+#| cache: true
+
+hk_band_levels <- c("0-4", "5-19", "20-39", "40-64", "65+")
+
+# Cluster-resample ss participants with replacement, relabelling each draw as
+# a distinct virtual participant (draw_id), keeping all of a participant's
+# repeat-day rows together.
+hk_resample <- function(ss, data_by_pid, all_pids) {
+  sampled_pids <- sample(all_pids, size = ss, replace = TRUE)
+  map_df(
+    seq_along(sampled_pids),
+    ~ data_by_pid[[sampled_pids[.]]] |> mutate(draw_id = as.character(.x)),
+    .id = NULL
+  )
+}
+
+# Build the raw age-band x age-band contact-rate matrix C^(Age) from a
+# resampled dataset (contacts per band pair, divided by virtual participants
+# per participant band).
+hk_build_age_matrix <- function(resampled_data) {
+  contact_matrix_long <- resampled_data |>
+    pivot_longer(
+      cols = starts_with("contacts_") & !starts_with("contacts_total"),
+      names_to = "contact_band",
+      values_to = "contacts",
+      names_prefix = "contacts_"
+    ) |>
+    mutate(
+      contact_band = case_when(
+        contact_band == "0_4" ~ "0-4",
+        contact_band == "5_19" ~ "5-19",
+        contact_band == "20_39" ~ "20-39",
+        contact_band == "40_64" ~ "40-64",
+        contact_band == "65p" ~ "65+",
+        TRUE ~ contact_band
+      ),
+      contact_band = factor(contact_band, levels = hk_band_levels)
+    ) |>
+    group_by(part_band, contact_band) |>
+    summarise(total_contacts = sum(contacts), .groups = "drop")
+
+  participant_counts <- resampled_data |>
+    distinct(draw_id, part_band) |>
+    group_by(part_band) |>
+    summarise(n_participants = n(), .groups = "drop") |>
+    mutate(part_band = factor(part_band, levels = hk_band_levels)) |>
+    complete(
+      part_band = factor(hk_band_levels, levels = hk_band_levels),
+      fill = list(n_participants = 0)
+    )
+
+  contact_matrix_complete <- contact_matrix_long |>
+    complete(
+      part_band = factor(hk_band_levels, levels = hk_band_levels),
+      contact_band = factor(hk_band_levels, levels = hk_band_levels),
+      fill = list(total_contacts = 0)
+    )
+
+  matrix_wide <- contact_matrix_complete |>
+    left_join(participant_counts, by = "part_band") |>
+    mutate(rate = if_else(n_participants > 0, total_contacts / n_participants, 0)) |>
+    select(part_band, contact_band, rate) |>
+    pivot_wider(names_from = contact_band, values_from = rate) |>
+    column_to_rownames("part_band") |>
+    as.matrix()
+
+  matrix_wide[, hk_band_levels]
+}
+
+# Estimate sigma_ind (SD of the participant-level random effect on log total
+# contacts, after accounting for age band) from resampled data. Returns NA if
+# the model fails to fit / is degenerate.
+hk_estimate_sigma_ind <- function(resampled_data) {
+  fit <- tryCatch(
+    suppressWarnings(suppressMessages(
+      lmer(log1p(contacts_total) ~ (1 | part_band) + (1 | draw_id),
+           data = resampled_data)
+    )),
+    error = function(e) NULL
+  )
+  if (is.null(fit)) return(NA_real_)
+  vc <- as.data.frame(VarCorr(fit))
+  sigma <- vc$sdcor[vc$grp == "draw_id"]
+  if (length(sigma) == 0 || !is.finite(sigma)) return(NA_real_)
+  sigma
+}
+
+# One bootstrap replicate of the full age/activity augmented model.
+hk_bootstrap_augmented <- function(ss, data_by_pid, all_pids,
+                                    alphas = alpha_values, n_classes = n_activity_classes) {
+  resampled_data <- hk_resample(ss, data_by_pid, all_pids)
+  age_matrix <- hk_build_age_matrix(resampled_data)
+  sigma_ind <- hk_estimate_sigma_ind(resampled_data)
+
+  eig_age_only <- get_eigenval(age_matrix)
+
+  eig_alpha <- rep(NA_real_, length(alphas))
+  if (is.finite(sigma_ind) && sigma_ind > 0) {
+    activity_classes <- get_activity_classes(
+      sigma = sigma_ind, n_classes = n_classes, method = "gaussquad"
+    )
+    eig_alpha <- vapply(alphas, function(a) {
+      activity_matrix <- make_toms_contact_matrix(
+        v = activity_classes$activity,
+        p_pop = activity_classes$fraction,
+        alpha = a
+      )
+      get_eigenval(kronecker(age_matrix, activity_matrix))
+    }, numeric(1))
+  }
+
+  names(eig_alpha) <- paste0("eigen_alpha", alphas)
+  as_tibble(c(
+    list(ss = ss, sigma_ind = sigma_ind, eigen_age_only = eig_age_only),
+    as.list(eig_alpha)
+  ))
+}
+```
+
+### Run Hong Kong bootstrap
+
+```{r}
+#| cache: true
+
+hk_ss_grid <- seq(50, 1400, by = 50)
+hk_numreps <- 200
+
+hk_grid <- crossing(ss = hk_ss_grid, rep = seq_len(hk_numreps))
+
+hk_raw_results <- future_map_dfr(
+  hk_grid$ss,
+  ~ hk_bootstrap_augmented(., hk_by_pid, hk_pids),
+  .options = furrr_options(seed = TRUE),
+  .progress = TRUE
+)
+
+# Common normalisation constant: mean age-only eigenvalue at the largest
+# sample size (so 1.0 = full-survey age-only estimate; the augmented series
+# sit above it, reflecting the R0-inflating effect of activity heterogeneity)
+hk_max_ss <- max(hk_ss_grid)
+hk_norm_factor <- hk_raw_results |>
+  filter(ss == hk_max_ss) |>
+  pull(eigen_age_only) |>
+  mean()
+
+hk_eigen_long <- hk_raw_results |>
+  select(ss, eigen_age_only, starts_with("eigen_alpha")) |>
+  pivot_longer(
+    cols = starts_with("eigen"),
+    names_to = "model",
+    values_to = "eigenval"
+  ) |>
+  mutate(
+    model = case_when(
+      model == "eigen_age_only" ~ "Age-only",
+      TRUE ~ paste0("α=", str_extract(model, "\\d+"))
+    ),
+    model = factor(model, levels = c("Age-only", paste0("α=", alpha_values))),
+    eigenval_norm = eigenval / hk_norm_factor
+  )
+
+hk_sigma_results <- hk_raw_results |>
+  select(ss, sigma_ind)
+
+glimpse(hk_eigen_long)
+```
+
+### Hong Kong: sigma_ind scatter and density (Figure 2 style)
+
+```{r}
+#| cache: true
+
+p_hk_sigma_scatter <- hk_sigma_results |>
+  ggplot(aes(x = ss, y = sigma_ind)) +
+  geom_point(alpha = 0.3, size = 1) +
+  labs(
+    title = "Hong Kong: bootstrap distribution of σ_ind",
+    x = "Sample size (participants)",
+    y = "σ_ind (activity heterogeneity)"
+  ) +
+  theme_minimal()
+
+hk_representative_ss <- c(50, 100, 500, 1000, 1400)
+hk_representative_ss <- hk_representative_ss[hk_representative_ss %in% hk_ss_grid]
+
+p_hk_sigma_density <- hk_sigma_results |>
+  filter(ss %in% hk_representative_ss) |>
+  ggplot(aes(x = sigma_ind, colour = as.factor(ss))) +
+  geom_density() +
+  coord_flip() +
+  labs(y = "Density", x = "σ_ind", colour = "Sample size") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+p_hk_sigma_fig2 <- p_hk_sigma_scatter + p_hk_sigma_density + plot_layout(axis_titles = "collect_y")
+
+ggsave("figures/bootstrap_hk_sigma_fig2.png", p_hk_sigma_fig2, width = 12, height = 5, dpi = 150)
+p_hk_sigma_fig2
+```
+
+### Hong Kong: sigma_ind uncertainty vs sample size
+
+```{r}
+#| cache: true
+
+hk_sigma_summary <- hk_sigma_results |>
+  group_by(ss) |>
+  summarise(
+    mean = mean(sigma_ind, na.rm = TRUE),
+    sd = sd(sigma_ind, na.rm = TRUE),
+    n_failed = sum(is.na(sigma_ind)),
+    .groups = "drop"
+  )
+
+knitr::kable(hk_sigma_summary, digits = 4)
+
+hk_sigma_max_sd <- hk_sigma_summary |> filter(ss == max(ss)) |> pull(sd)
+
+p_hk_sigma_uncertainty <- hk_sigma_summary |>
+  mutate(reference = hk_sigma_max_sd * sqrt(max(ss)) / sqrt(ss)) |>
+  ggplot(aes(x = ss, y = sd)) +
+  geom_point(size = 2, color = "steelblue") +
+  geom_line(color = "steelblue", alpha = 0.6) +
+  geom_line(aes(y = reference), linetype = "dashed", color = "red", alpha = 0.6, linewidth = 1) +
+  labs(
+    title = "Hong Kong: σ_ind precision vs sample size",
+    subtitle = "Statistical uncertainty in the estimable activity-heterogeneity parameter",
+    x = "Sample size (participants)",
+    y = "SD of σ_ind",
+    caption = "Dashed red line: reference 1/√(ss) curve scaled to match data at largest ss"
+  ) +
+  theme_minimal()
+
+ggsave("figures/bootstrap_hk_sigma_uncertainty.png", p_hk_sigma_uncertainty, width = 7, height = 5, dpi = 150)
+p_hk_sigma_uncertainty
+```
+
+### Hong Kong: eigenvalue scatter and density by model (Figure 2 style)
+
+```{r}
+#| cache: true
+
+p_hk_eigen_scatter <- hk_eigen_long |>
+  ggplot(aes(x = ss, y = eigenval_norm, colour = model)) +
+  geom_point(alpha = 0.25, size = 0.8) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey30", alpha = 0.6) +
+  labs(
+    title = "Hong Kong: bootstrap eigenvalue by model",
+    x = "Sample size (participants)",
+    y = "Normalised dominant eigenvalue",
+    colour = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Density at the largest sample size only: shows the structural separation
+# between models that persists even with (almost) the full survey
+p_hk_eigen_density <- hk_eigen_long |>
+  filter(ss == hk_max_ss) |>
+  ggplot(aes(x = eigenval_norm, colour = model)) +
+  geom_density() +
+  coord_flip() +
+  labs(y = "Density", x = "Normalised dominant eigenvalue", colour = "Model") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.position = "bottom")
+
+p_hk_eigen_fig2 <- p_hk_eigen_scatter + p_hk_eigen_density +
+  plot_layout(axis_titles = "collect_y", guides = "collect") &
+  theme(legend.position = "bottom")
+
+ggsave("figures/bootstrap_hk_eigen_fig2.png", p_hk_eigen_fig2, width = 12, height = 6, dpi = 150)
+p_hk_eigen_fig2
+```
+
+### Hong Kong: statistical vs structural uncertainty
+
+```{r}
+#| cache: true
+
+hk_eigen_summary <- hk_eigen_long |>
+  group_by(model, ss) |>
+  summarise(
+    mean = mean(eigenval_norm, na.rm = TRUE),
+    sd = sd(eigenval_norm, na.rm = TRUE),
+    q025 = quantile(eigenval_norm, 0.025, na.rm = TRUE),
+    q975 = quantile(eigenval_norm, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+knitr::kable(hk_eigen_summary |> filter(ss %in% hk_representative_ss), digits = 4)
+
+# Structural uncertainty: does the MEAN level (separation between models)
+# shrink with sample size? (it should not)
+p_hk_mean_by_model <- hk_eigen_summary |>
+  ggplot(aes(x = ss, y = mean, colour = model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  labs(
+    title = "Hong Kong: mean eigenvalue by model vs sample size",
+    subtitle = "Structural (assortativity) uncertainty — the gap between models is not expected to shrink",
+    x = "Sample size (participants)",
+    y = "Mean normalised eigenvalue",
+    colour = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Statistical uncertainty: does the SPREAD within each model shrink with n?
+p_hk_sd_by_model <- hk_eigen_summary |>
+  ggplot(aes(x = ss, y = sd, colour = model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  labs(
+    title = "Hong Kong: SD of eigenvalue by model vs sample size",
+    subtitle = "Statistical uncertainty — expected to shrink with sample size",
+    x = "Sample size (participants)",
+    y = "SD of normalised eigenvalue",
+    colour = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p_hk_structural_vs_statistical <- p_hk_mean_by_model / p_hk_sd_by_model +
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+ggsave("figures/bootstrap_hk_structural_vs_statistical.png", p_hk_structural_vs_statistical,
+       width = 8, height = 9, dpi = 150)
+p_hk_structural_vs_statistical
+```
+
+## French Connection Bootstrap Analysis
+
+### Load and prepare data
+
+```{r}
+#| cache: true
+
+# Helper function to bin ages
+band <- function(age) {
+  ifelse(age <= 70, floor(age / 10), 7)
+}
+
+# Read French Connection data from three CSVs
+fc_participants <- read_csv("data/french_connection/2015_Beraud_France_participant_common.csv")
+fc_contacts_common <- read_csv("data/french_connection/2015_Beraud_France_contact_common.csv")
+fc_contacts_extra <- read_csv("data/french_connection/2015_Beraud_France_contact_extra.csv")
+
+# Join contacts with extra info (wave, studyDay)
+fc_contacts <- fc_contacts_common |>
+  left_join(fc_contacts_extra, by = "cont_id")
+
+# Impute missing contact ages (ONCE, not per replicate, for computational efficiency)
+set.seed(12345)  # For reproducibility of this imputation
+fc_contacts <- fc_contacts |>
+  mutate(
+    cnt_age_est_min = replace_na(cnt_age_est_min, min(cnt_age_est_min, na.rm = TRUE)),
+    cnt_age_est_max = replace_na(cnt_age_est_max, max(cnt_age_est_max, na.rm = TRUE)),
+    cont_age_imputed = cnt_age_est_min + (cnt_age_est_max - cnt_age_est_min) * runif(n()),
+    cont_age = coalesce(cnt_age_exact, cont_age_imputed)
+  )
+
+# Aggregate to one row per (part_id, wave, studyDay, cont_age)
+fc_contacts_agg <- fc_contacts |>
+  group_by(part_id, wave, studyDay, cont_age) |>
+  summarise(contacts = n(), .groups = "drop")
+
+# Total contacts per (part_id, wave, studyDay), for the sigma_ind variance model
+fc_totals <- fc_contacts_agg |>
+  group_by(part_id, wave, studyDay) |>
+  summarise(contacts_total = sum(contacts), .groups = "drop")
+
+# Bin contact ages, join participant ages and daily totals
+fc_data <- fc_contacts_agg |>
+  left_join(fc_participants |> select(part_id, part_age), by = "part_id") |>
+  mutate(
+    part_band = band(part_age),
+    cont_band = band(cont_age)
+  ) |>
+  left_join(fc_totals, by = c("part_id", "wave", "studyDay")) |>
+  select(part_id, wave, studyDay, part_band, cont_band, contacts, contacts_total)
+
+# Create a list of data per participant
+fc_by_pid <- split(fc_data, fc_data$part_id)
+fc_pids <- names(fc_by_pid)
+
+glimpse(fc_data)
+```
+
+### Bootstrap functions for French Connection
+
+```{r}
+#| cache: true
+
+fc_band_labels <- as.character(0:7)
+
+fc_resample <- function(ss, data_by_pid, all_pids) {
+  sampled_pids <- sample(all_pids, size = ss, replace = TRUE)
+  map_df(
+    seq_along(sampled_pids),
+    ~ data_by_pid[[sampled_pids[.]]] |> mutate(draw_id = as.character(.x)),
+    .id = NULL
+  )
+}
+
+fc_build_age_matrix <- function(resampled_data) {
+  contact_matrix_long <- resampled_data |>
+    group_by(part_band, cont_band) |>
+    summarise(total_contacts = sum(contacts), .groups = "drop")
+
+  participant_counts <- resampled_data |>
+    distinct(draw_id, part_band) |>
+    group_by(part_band) |>
+    summarise(n_participants = n(), .groups = "drop") |>
+    complete(part_band = 0:7, fill = list(n_participants = 0))
+
+  contact_matrix_complete <- contact_matrix_long |>
+    complete(part_band = 0:7, cont_band = 0:7, fill = list(total_contacts = 0))
+
+  matrix_wide <- contact_matrix_complete |>
+    left_join(participant_counts, by = "part_band") |>
+    mutate(rate = if_else(n_participants > 0, total_contacts / n_participants, 0)) |>
+    select(part_band, cont_band, rate) |>
+    pivot_wider(names_from = cont_band, values_from = rate) |>
+    column_to_rownames("part_band") |>
+    as.matrix()
+
+  matrix_wide[, fc_band_labels]
+}
+
+# Estimate sigma_ind from resampled data. One row per (draw_id, wave,
+# studyDay) is needed for the variance model (the per-band-pair granularity
+# used for the age matrix is not needed here).
+fc_estimate_sigma_ind <- function(resampled_data) {
+  model_data <- resampled_data |>
+    distinct(draw_id, wave, studyDay, part_band, contacts_total)
+
+  fit <- tryCatch(
+    suppressWarnings(suppressMessages(
+      lmer(log1p(contacts_total) ~ (1 | part_band) + (1 | draw_id), data = model_data)
+    )),
+    error = function(e) NULL
+  )
+  if (is.null(fit)) return(NA_real_)
+  vc <- as.data.frame(VarCorr(fit))
+  sigma <- vc$sdcor[vc$grp == "draw_id"]
+  if (length(sigma) == 0 || !is.finite(sigma)) return(NA_real_)
+  sigma
+}
+
+fc_bootstrap_augmented <- function(ss, data_by_pid, all_pids,
+                                    alphas = alpha_values, n_classes = n_activity_classes) {
+  resampled_data <- fc_resample(ss, data_by_pid, all_pids)
+  age_matrix <- fc_build_age_matrix(resampled_data)
+  sigma_ind <- fc_estimate_sigma_ind(resampled_data)
+
+  eig_age_only <- get_eigenval(age_matrix)
+
+  eig_alpha <- rep(NA_real_, length(alphas))
+  if (is.finite(sigma_ind) && sigma_ind > 0) {
+    activity_classes <- get_activity_classes(
+      sigma = sigma_ind, n_classes = n_classes, method = "gaussquad"
+    )
+    eig_alpha <- vapply(alphas, function(a) {
+      activity_matrix <- make_toms_contact_matrix(
+        v = activity_classes$activity,
+        p_pop = activity_classes$fraction,
+        alpha = a
+      )
+      get_eigenval(kronecker(age_matrix, activity_matrix))
+    }, numeric(1))
+  }
+
+  names(eig_alpha) <- paste0("eigen_alpha", alphas)
+  as_tibble(c(
+    list(ss = ss, sigma_ind = sigma_ind, eigen_age_only = eig_age_only),
+    as.list(eig_alpha)
+  ))
+}
+```
+
+### Run French Connection bootstrap
+
+```{r}
+#| cache: true
+
+fc_ss_grid <- seq(50, 1700, by = 50)
+fc_numreps <- 200
+
+fc_grid <- crossing(ss = fc_ss_grid, rep = seq_len(fc_numreps))
+
+fc_raw_results <- future_map_dfr(
+  fc_grid$ss,
+  ~ fc_bootstrap_augmented(., fc_by_pid, fc_pids),
+  .options = furrr_options(seed = TRUE),
+  .progress = TRUE
+)
+
+fc_max_ss <- max(fc_ss_grid)
+fc_norm_factor <- fc_raw_results |>
+  filter(ss == fc_max_ss) |>
+  pull(eigen_age_only) |>
+  mean()
+
+fc_eigen_long <- fc_raw_results |>
+  select(ss, eigen_age_only, starts_with("eigen_alpha")) |>
+  pivot_longer(cols = starts_with("eigen"), names_to = "model", values_to = "eigenval") |>
+  mutate(
+    model = case_when(
+      model == "eigen_age_only" ~ "Age-only",
+      TRUE ~ paste0("α=", str_extract(model, "\\d+"))
+    ),
+    model = factor(model, levels = c("Age-only", paste0("α=", alpha_values))),
+    eigenval_norm = eigenval / fc_norm_factor
+  )
+
+fc_sigma_results <- fc_raw_results |> select(ss, sigma_ind)
+
+glimpse(fc_eigen_long)
+```
+
+### French Connection: sigma_ind scatter and density (Figure 2 style)
+
+```{r}
+#| cache: true
+
+p_fc_sigma_scatter <- fc_sigma_results |>
+  ggplot(aes(x = ss, y = sigma_ind)) +
+  geom_point(alpha = 0.3, size = 1) +
+  labs(
+    title = "French Connection: bootstrap distribution of σ_ind",
+    x = "Sample size (participants)",
+    y = "σ_ind (activity heterogeneity)"
+  ) +
+  theme_minimal()
+
+fc_representative_ss <- c(50, 100, 500, 1000, 1700)
+fc_representative_ss <- fc_representative_ss[fc_representative_ss %in% fc_ss_grid]
+
+p_fc_sigma_density <- fc_sigma_results |>
+  filter(ss %in% fc_representative_ss) |>
+  ggplot(aes(x = sigma_ind, colour = as.factor(ss))) +
+  geom_density() +
+  coord_flip() +
+  labs(y = "Density", x = "σ_ind", colour = "Sample size") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank())
+
+p_fc_sigma_fig2 <- p_fc_sigma_scatter + p_fc_sigma_density + plot_layout(axis_titles = "collect_y")
+
+ggsave("figures/bootstrap_fc_sigma_fig2.png", p_fc_sigma_fig2, width = 12, height = 5, dpi = 150)
+p_fc_sigma_fig2
+```
+
+### French Connection: sigma_ind uncertainty vs sample size
+
+```{r}
+#| cache: true
+
+fc_sigma_summary <- fc_sigma_results |>
+  group_by(ss) |>
+  summarise(
+    mean = mean(sigma_ind, na.rm = TRUE),
+    sd = sd(sigma_ind, na.rm = TRUE),
+    n_failed = sum(is.na(sigma_ind)),
+    .groups = "drop"
+  )
+
+knitr::kable(fc_sigma_summary, digits = 4)
+
+fc_sigma_max_sd <- fc_sigma_summary |> filter(ss == max(ss)) |> pull(sd)
+
+p_fc_sigma_uncertainty <- fc_sigma_summary |>
+  mutate(reference = fc_sigma_max_sd * sqrt(max(ss)) / sqrt(ss)) |>
+  ggplot(aes(x = ss, y = sd)) +
+  geom_point(size = 2, color = "steelblue") +
+  geom_line(color = "steelblue", alpha = 0.6) +
+  geom_line(aes(y = reference), linetype = "dashed", color = "red", alpha = 0.6, linewidth = 1) +
+  labs(
+    title = "French Connection: σ_ind precision vs sample size",
+    subtitle = "Statistical uncertainty in the estimable activity-heterogeneity parameter",
+    x = "Sample size (participants)",
+    y = "SD of σ_ind",
+    caption = "Dashed red line: reference 1/√(ss) curve scaled to match data at largest ss"
+  ) +
+  theme_minimal()
+
+ggsave("figures/bootstrap_fc_sigma_uncertainty.png", p_fc_sigma_uncertainty, width = 7, height = 5, dpi = 150)
+p_fc_sigma_uncertainty
+```
+
+### French Connection: eigenvalue scatter and density by model (Figure 2 style)
+
+```{r}
+#| cache: true
+
+p_fc_eigen_scatter <- fc_eigen_long |>
+  ggplot(aes(x = ss, y = eigenval_norm, colour = model)) +
+  geom_point(alpha = 0.25, size = 0.8) +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "grey30", alpha = 0.6) +
+  labs(
+    title = "French Connection: bootstrap eigenvalue by model",
+    x = "Sample size (participants)",
+    y = "Normalised dominant eigenvalue",
+    colour = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p_fc_eigen_density <- fc_eigen_long |>
+  filter(ss == fc_max_ss) |>
+  ggplot(aes(x = eigenval_norm, colour = model)) +
+  geom_density() +
+  coord_flip() +
+  labs(y = "Density", x = "Normalised dominant eigenvalue", colour = "Model") +
+  theme_minimal() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        legend.position = "bottom")
+
+p_fc_eigen_fig2 <- p_fc_eigen_scatter + p_fc_eigen_density +
+  plot_layout(axis_titles = "collect_y", guides = "collect") &
+  theme(legend.position = "bottom")
+
+ggsave("figures/bootstrap_fc_eigen_fig2.png", p_fc_eigen_fig2, width = 12, height = 6, dpi = 150)
+p_fc_eigen_fig2
+```
+
+### French Connection: statistical vs structural uncertainty
+
+```{r}
+#| cache: true
+
+fc_eigen_summary <- fc_eigen_long |>
+  group_by(model, ss) |>
+  summarise(
+    mean = mean(eigenval_norm, na.rm = TRUE),
+    sd = sd(eigenval_norm, na.rm = TRUE),
+    q025 = quantile(eigenval_norm, 0.025, na.rm = TRUE),
+    q975 = quantile(eigenval_norm, 0.975, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+knitr::kable(fc_eigen_summary |> filter(ss %in% fc_representative_ss), digits = 4)
+
+p_fc_mean_by_model <- fc_eigen_summary |>
+  ggplot(aes(x = ss, y = mean, colour = model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  labs(
+    title = "French Connection: mean eigenvalue by model vs sample size",
+    subtitle = "Structural (assortativity) uncertainty — the gap between models is not expected to shrink",
+    x = "Sample size (participants)",
+    y = "Mean normalised eigenvalue",
+    colour = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p_fc_sd_by_model <- fc_eigen_summary |>
+  ggplot(aes(x = ss, y = sd, colour = model)) +
+  geom_line(linewidth = 1) +
+  geom_point(size = 1.5) +
+  labs(
+    title = "French Connection: SD of eigenvalue by model vs sample size",
+    subtitle = "Statistical uncertainty — expected to shrink with sample size",
+    x = "Sample size (participants)",
+    y = "SD of normalised eigenvalue",
+    colour = "Model"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p_fc_structural_vs_statistical <- p_fc_mean_by_model / p_fc_sd_by_model +
+  plot_layout(guides = "collect") & theme(legend.position = "bottom")
+
+ggsave("figures/bootstrap_fc_structural_vs_statistical.png", p_fc_structural_vs_statistical,
+       width = 8, height = 9, dpi = 150)
+p_fc_structural_vs_statistical
+```
+
+## Comparison across datasets
+
+```{r}
+#| cache: true
+
+hk_sigma_labeled <- hk_sigma_summary |> mutate(dataset = "Hong Kong")
+fc_sigma_labeled <- fc_sigma_summary |> mutate(dataset = "French Connection")
+sigma_comparison <- bind_rows(hk_sigma_labeled, fc_sigma_labeled)
+
+p_sigma_comparison <- sigma_comparison |>
+  ggplot(aes(x = ss, y = sd, color = dataset)) +
+  geom_point(size = 2) +
+  geom_line(alpha = 0.6, linewidth = 1) +
+  labs(
+    title = "Comparison: σ_ind precision across datasets",
+    x = "Sample size (participants)",
+    y = "SD of σ_ind",
+    color = "Dataset"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+# Central alpha (10) eigenvalue SD, compared across datasets
+hk_eigen_central <- hk_eigen_summary |> filter(model == "α=10") |> mutate(dataset = "Hong Kong")
+fc_eigen_central <- fc_eigen_summary |> filter(model == "α=10") |> mutate(dataset = "French Connection")
+eigen_central_comparison <- bind_rows(hk_eigen_central, fc_eigen_central)
+
+p_eigen_comparison <- eigen_central_comparison |>
+  ggplot(aes(x = ss, y = sd, color = dataset)) +
+  geom_point(size = 2) +
+  geom_line(alpha = 0.6, linewidth = 1) +
+  labs(
+    title = "Comparison: eigenvalue SD (α=10) across datasets",
+    x = "Sample size (participants)",
+    y = "SD of normalised eigenvalue",
+    color = "Dataset"
+  ) +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+p_comparison <- p_sigma_comparison + p_eigen_comparison + plot_layout(guides = "collect") &
+  theme(legend.position = "bottom")
+
+ggsave("figures/bootstrap_comparison.png", p_comparison, width = 12, height = 5, dpi = 150)
+p_comparison
+```
+
+## Summary
+
+This analysis demonstrates two distinct kinds of uncertainty in the paper's age/activity-augmented contact-matrix model, for two real repeated-measures contact survey datasets. **Statistical** uncertainty — in the activity-heterogeneity parameter $\sigma_{ind}$, and in the dominant eigenvalue at a fixed assortativity level $\alpha$ — shrinks as sample size grows, broadly following (or being somewhat slower than) the classical $1/\sqrt{n}$ Monte-Carlo rate. **Structural** uncertainty — the systematic gap between the age-only model and the three fixed $\alpha$ values, reflecting the unidentifiable assortativity parameter — does not shrink with sample size at all: no amount of additional survey data can resolve it, because the survey design itself never records the activity level of participants' contacts. Repeated contact measurements are what make $\sigma_{ind}$ estimable in the first place; nothing in the data can make $\alpha$ estimable.
+
+## Provenance
+
+This file was generated by Claude Code (Sonnet 5), working with Leon Danon, via the following sequence of prompts. Recorded here so the reasoning behind the scope and design choices below is traceable later.
+
+1. **Initial request:** *"find the bootrap bit in the code here. the goal is to bootstrap and with decreasing sample size and quantify the uncertainty as a function of sample size. look at how it was done in https://github.com/bristol-vaccine-centre/contact-sample-size and propose a and implement (when confident) similar approach within this code base. Do not touch existing files, write a separate qmd with the new workflow. Use the best available model in my plan for planning, and spawn smaller models for implementation. If you are not sure, ask."*
+   - A repo search found no existing bootstrap code (only an unrelated permutation test in `analysis_1_variance_partitioning.qmd`).
+   - The reference repo resamples POLYMOD participants with replacement at decreasing sample sizes, rebuilds an age-structured contact matrix, and tracks the normalised spread of the dominant eigenvalue as a proxy for uncertainty in R0.
+
+2. **Clarifying questions asked back** (dataset scope; with/without replacement):
+   - *"I have these datasets somewhere - aren't they in the current repo?"* — prompted a check confirming only Hong Kong data was present locally at that point; French Connection had not yet been downloaded, and POLYMOD is not in this repo at all.
+   - *"With-replacement bootstrap only (Recommended)"* — so no without-replacement comparison was added.
+
+3. **Reframing the scope:** *"hold on - I don't want you to bootstrap polymod this is only about repeated contacts."*
+   - This is the key methodological pivot: instead of mirroring POLYMOD's single-cross-section subsampling, the analysis performs a **cluster bootstrap by participant** on the two local datasets with genuine repeat measurements — Hong Kong's repeat reporting days and French Connection's repeat waves/study days — matching the bootstrap approach already described in `Paper/main.tex` (cluster-resampling by participant, relabelling repeats as distinct participants).
+
+4. *"try grabbing the FC data now."* / *"store locally"*
+   - Downloaded the French Connection dataset from Zenodo (record 3886590) into `data/french_connection/` (gitignored, using the same file layout `R/functions.R`'s existing `download_fc_data()` expects, without modifying that function).
+
+5. *"great - I want you to give me highlights and figures that are similar to those in the bristol-vaccine-centre project in the qmd. And a summary of the procedure/methods."*
+   - Added the scatter+density combined figures (mirroring the reference repo's Figure 2 layout) and the Methods section near the top of this document (later substantially revised, see below).
+
+6. *"run it."*
+   - Triggered a full-scale `quarto render` of the first version of this file (raw age-only matrix, no activity-heterogeneity augmentation).
+
+7. *"I want you to (in the qmd file) write down a record of the prompts that led to the generation of the qmd."* — produced this Provenance section.
+
+8. *"is any of this using the functions and methods from the current paper (not the bristol vaccine centre) paper to generate the matrices?"*
+   - Answer at the time: no — only the generic `get_eigenval()` helper was reused; the matrices themselves were raw empirical age-band contact-rate matrices (the reference repo's approach), not the current paper's activity-heterogeneity model.
+
+9. *"that's not what I wanted. I wanted a bootstrap, with the structure of figures mirroring the analysis which you have done well, but using the formalism and methodology in the current paper."* / *"the key question is about repeated contact and assortativity."*
+   - Triggered the augmented-model rewrite: per bootstrap replicate, re-estimate $\sigma_{ind}$ from the resampled repeated-measures data, build activity classes via Gaussian quadrature, build $C^{(Activity)}$ via **Tom's** iterative-normalisation kernel method (confirmed as the paper's method via `Paper/analysis_s1_binning_methods.tex:375`, not Mike's alternative), and Kronecker-combine with the age matrix. $\alpha$ is swept rather than estimated, since `Paper/main.tex:319-321` states directly that assortativity is not identifiable from either dataset at any sample size, whereas $\sigma$ is estimable and specifically requires repeated measurements.
+
+10. *"Yes I know alpha is not fittable; pick 3 values from the paper: lowest middle highest. But first Do a test run with the central alpha with 10, then 20, then 30 reps in the first instance. This is to assess how long 100/200 reps would take. We will go from there. Make sure you keep recording the provenance."*
+    - $\alpha$ values fixed at **5, 10, 20**, taken directly from the paper's own sensitivity grid (`Paper/analysis_s1_binning_methods.tex:371`); $\alpha=10$ is also the main text's headline value.
+    - Timing pilot (Hong Kong, central $\alpha=10$, full grid, numreps=10/20/30): ~0.07s/replicate, linear scaling, 0 hard failures at any sample size.
+
+11. *"how does sample size affect those?"*
+    - Answered conceptually: $\sigma$ (repeated-contact-driven) becomes more precise with more participants (and requires repeats to be identifiable at all); $\alpha$ (assortativity) cannot be pinned down at any sample size, since contacts' own activity levels are never recorded. This distinction — "statistical" vs "structural" uncertainty — became the organising principle for the figures below.
+
+12. *"no problem to run 200"*
+    - A quick French Connection timing pilot (same procedure) confirmed ~0.083s/replicate, linear scaling, 0 hard failures — extrapolating to roughly 9.4 minutes for 200 reps across French Connection's larger 34-point sample-size grid (Hong Kong's 28-point grid: ~6.5 minutes). Both datasets were then run at `numreps = 200`, all 3 $\alpha$ values, producing the sections above: separate $\sigma_{ind}$ tracking (Figure-2-style scatter+density, and SD-vs-n with a $1/\sqrt{n}$ reference) and eigenvalue tracking by model (Age-only + 3 $\alpha$ values), split into a "mean by model vs n" plot (structural uncertainty — should stay flat/separated) and an "SD by model vs n" plot (statistical uncertainty — should shrink), plus a cross-dataset comparison.
