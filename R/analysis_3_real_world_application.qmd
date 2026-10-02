@@ -858,7 +858,7 @@ ggsave("figures/final_size_by_age.png",
        plot = final_size_plot,
        bg = "white",
        width = 7,
-       height = 5,
+       height = 4,
        dpi = 300)
 
 final_size_plot

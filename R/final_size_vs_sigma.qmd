@@ -15,7 +15,7 @@ Heterogenising the population always increases $R_0$ (the eigenvalue figure), bu
 
 At $\sigma = 0$ there is no variation in activity level for the assortativity kernel to sort on, so every $\alpha$ gives the same final size and the curves in each panel of each figure start from a common point.
 
-Panel A, above the final size, makes the difference explicit: it shows the $R_0$ left free to vary, coloured by $\alpha$, over the same $\sigma$ axis (the realised $R_0$ in the first figure, the homogeneous $R_0$ in the second). The dotted line marks the epidemic threshold $R_0 = 1$. Note that panel A of the first figure shows the absolute realised $R_0$, not the relative $R_0$ plotted in the eigenvalue figure. The $R_0$ held fixed in each figure is not drawn; it is given in the caption.
+Panel A, beside the final size, makes the difference explicit: it shows the $R_0$ left free to vary, coloured by $\alpha$, over the same range of $\sigma$ (the realised $R_0$ in the first figure, the homogeneous $R_0$ in the second). The dotted line marks the epidemic threshold $R_0 = 1$. Note that panel A of the first figure shows the absolute realised $R_0$, not the relative $R_0$ plotted in the eigenvalue figure. The $R_0$ held fixed in each figure is not drawn; it is given in the caption.
 
 ```{r}
 #| message: false
@@ -122,10 +122,8 @@ realised_data <- lambda_grid |>
 ## The figures
 
 ```{r}
-# panel A, the R0 this figure lets move, one line per alpha: the top two fifths
-# of each figure. Its x axis is suppressed, because it shares the final size
-# panel's axis directly below it. The R0 it holds fixed is given in the caption
-# rather than drawn
+# panel A, the R0 this figure lets move, one line per alpha: the left half of
+# each figure. The R0 it holds fixed is given in the caption rather than drawn
 r0_panel <- function(data, y_label) {
   data |>
     ggplot(aes(x = sigma, y = r0, colour = alpha)) +
@@ -133,15 +131,14 @@ r0_panel <- function(data, y_label) {
     geom_line(linewidth = 0.8) +
     scale_colour_manual(values = alpha_colours, guide = "none") +
     expand_limits(y = 0) +
-    labs(y = y_label) +
-    theme_minimal() +
-    theme(
-      axis.title.x = element_blank(),
-      axis.text.x = element_blank()
-    )
+    labs(
+      x = expression("Activity heterogeneity (" * sigma * ")"),
+      y = y_label
+    ) +
+    theme_minimal()
 }
 
-# panel B, the final size, below it. `y_limits` optionally fixes the y axis
+# panel B, the final size, to its right. `y_limits` optionally fixes the y axis
 # range (NULL lets ggplot choose)
 final_size_panel <- function(data, y_limits = NULL) {
   data |>
@@ -158,12 +155,14 @@ final_size_panel <- function(data, y_limits = NULL) {
 }
 
 # homogeneous R0 held constant, with the realised R0 free (main text)
-homogeneous_plot <- r0_panel(
-  mutate(homogeneous_data, r0 = realised),
-  y_label = expression(R[0])
-) /
-  final_size_panel(homogeneous_data) +
-  plot_layout(heights = c(2, 3), guides = "collect") +
+homogeneous_plot <- (
+  r0_panel(
+    mutate(homogeneous_data, r0 = realised),
+    y_label = expression(R[0])
+  ) |
+    final_size_panel(homogeneous_data)
+) +
+  plot_layout(guides = "collect") +
   plot_annotation(tag_levels = "A")
 
 homogeneous_plot
@@ -171,18 +170,20 @@ homogeneous_plot
 ggsave("figures/final_size_vs_sigma_homogeneous.png",
        plot = homogeneous_plot,
        bg = "white",
-       width = 7,
-       height = 7.5,
+       width = 10,
+       height = 4.5,
        dpi = 300)
 
 # realised R0 held constant, with the homogeneous R0 free (supplement). The
 # final size spans most of the range here, so show the full 0-100% axis
-realised_plot <- r0_panel(
-  mutate(realised_data, r0 = beta),
-  y_label = expression("Homogeneous " * R[0])
-) /
-  final_size_panel(realised_data, y_limits = c(0, 1)) +
-  plot_layout(heights = c(2, 3), guides = "collect") +
+realised_plot <- (
+  r0_panel(
+    mutate(realised_data, r0 = beta),
+    y_label = expression("Homogeneous " * R[0])
+  ) |
+    final_size_panel(realised_data, y_limits = c(0, 1))
+) +
+  plot_layout(guides = "collect") +
   plot_annotation(tag_levels = "A")
 
 realised_plot
@@ -190,8 +191,8 @@ realised_plot
 ggsave("figures/final_size_vs_sigma_realised.png",
        plot = realised_plot,
        bg = "white",
-       width = 7,
-       height = 7.5,
+       width = 10,
+       height = 4.5,
        dpi = 300)
 ```
 
