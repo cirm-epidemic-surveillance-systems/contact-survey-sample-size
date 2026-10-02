@@ -8,14 +8,14 @@ editor: visual
 
 This is the final-size counterpart of `R/eigenvalue_vs_sigma.qmd`: the same sweep over activity heterogeneity $\sigma$ and assortativity kernel width $\alpha$, but plotting the overall final size of the epidemic rather than the relative $R_0$.
 
-Heterogenising the population always increases $R_0$ (the eigenvalue figure), but its effect on the final size pulls in two directions. Heterogeneity concentrates infection in the most active individuals, which *lowers* the attack rate at a given $R_0$; it also *raises* $R_0$, which pushes the attack rate up. Which one wins depends on what is being held fixed, so the two panels hold different things fixed and answer different questions:
+Heterogenising the population always increases $R_0$ (the eigenvalue figure), but its effect on the final size pulls in two directions. Heterogeneity concentrates infection in the most active individuals, which *lowers* the attack rate at a given $R_0$; it also *raises* $R_0$, which pushes the attack rate up. Which one wins depends on what is being held fixed, so we make two figures that hold different things fixed and answer different questions. In each, panel A shows the $R_0$ that is left free to vary and panel B the overall final size:
 
--   **Panel A --- homogeneous $R_0$ held at 0.9.** The transmission probability $\beta$ is fixed, at a value that could not sustain an epidemic in a homogeneous population. As $\sigma$ rises the realised $R_0$ climbs through 1 and the final size lifts off zero. Assortativity brings that threshold forward, because it raises $R_0$ faster.
--   **Panel B --- realised $R_0$ held at 3.** Here $\beta$ is *lowered* as $\sigma$ rises, exactly enough to keep the realised $R_0$ at 3. With the $R_0$ effect held out, only the concentrating effect remains, and the final size falls with $\sigma$ --- further for more assortative mixing.
+-   **Homogeneous $R_0$ held at 0.9 (main text).** The transmission probability $\beta$ is fixed, at a value that could not sustain an epidemic in a homogeneous population. As $\sigma$ rises the realised $R_0$ climbs through 1 and the final size lifts off zero. Assortativity brings that threshold forward, because it raises $R_0$ faster. At larger $\sigma$ the concentrating effect catches up with the rise in $R_0$ and the final size turns back down, so we extend $\sigma$ to 1.5 to show this.
+-   **Realised $R_0$ held at 3 (supplement).** Here $\beta$ is *lowered* as $\sigma$ rises, exactly enough to keep the realised $R_0$ at 3. With the $R_0$ effect held out, only the concentrating effect remains, and the final size falls with $\sigma$ --- further for more assortative mixing.
 
-At $\sigma = 0$ there is no variation in activity level for the assortativity kernel to sort on, so every $\alpha$ gives the same final size and the curves in each panel start from a common point.
+At $\sigma = 0$ there is no variation in activity level for the assortativity kernel to sort on, so every $\alpha$ gives the same final size and the curves in each panel of each figure start from a common point.
 
-The shallow strip under each panel makes the difference explicit: it shows both $R_0$s over the same $\sigma$ axis, with the one held constant drawn flat in grey and the one left free coloured by $\alpha$. The dotted line marks the epidemic threshold $R_0 = 1$.
+Panel A, above the final size, makes the difference explicit: it shows the $R_0$ left free to vary, coloured by $\alpha$, over the same $\sigma$ axis (the realised $R_0$ in the first figure, the homogeneous $R_0$ in the second). The dotted line marks the epidemic threshold $R_0 = 1$. Note that panel A of the first figure shows the absolute realised $R_0$, not the relative $R_0$ plotted in the eigenvalue figure. The $R_0$ held fixed in each figure is not drawn; it is given in the caption.
 
 ```{r}
 #| message: false
@@ -26,11 +26,12 @@ source("R/functions.R")
 
 ## Setup
 
-The $\sigma$ and $\alpha$ grids, the number of quadrature points, and the line colours all match the eigenvalue figure, so the two can be read side by side.
+The $\alpha$ grid, the number of quadrature points, and the line colours all match the eigenvalue figure, so the two can be read side by side. The $\sigma$ grid extends further, to show the final size turning down.
 
 ```{r}
-# activity heterogeneity (sd of the log activity distribution)
-sigma_grid <- seq(0, 1, by = 0.025)
+# activity heterogeneity (sd of the log activity distribution), extending past
+# the eigenvalue figure's range so the final size can be seen to peak and fall
+sigma_grid <- seq(0, 1.5, by = 0.025)
 
 # assortativity kernel width, matching the eigenvalue figure
 alpha_values <- c(0, 10, 20, 30, 40)
@@ -44,8 +45,8 @@ n_classes <- 100
 # fully-assortative blending, matching the main analysis
 epsilon <- 1
 
-# the R0 each panel holds fixed: panel A fixes the homogeneous R0 below the
-# epidemic threshold, panel B fixes the realised R0 well above it
+# the R0 each figure holds fixed: the first fixes the homogeneous R0 below the
+# epidemic threshold, the second fixes the realised R0 well above it
 r0_homogeneous <- 0.9
 r0_realised <- 3
 
@@ -54,15 +55,9 @@ r0_realised <- 3
 alpha_colours <- colorRampPalette(
   RColorBrewer::brewer.pal(9, "RdPu")[4:9]
 )(length(alpha_values))
-
-# the R0 held constant in each panel is drawn once in grey (it is the same for
-# every alpha); the R0 left free is coloured by alpha, and line type says which
-# of the two R0s a line is
-r0_linetypes <- c("Realised" = "solid", "Homogeneous" = "dashed")
-constant_colour <- "grey40"
 ```
 
-The activity matrix has a dominant eigenvalue of 1 in the homogeneous case, so the transmission probability $\beta$ *is* the homogeneous $R_0$, and the realised $R_0$ is $\beta$ times the relative $R_0$ $\lambda(\sigma, \alpha)$ plotted in the eigenvalue figure. That makes both panels a matter of choosing $\beta$: fix it at 0.9 for panel A, or set it to $3 / \lambda$ for panel B.
+The activity matrix has a dominant eigenvalue of 1 in the homogeneous case, so the transmission probability $\beta$ *is* the homogeneous $R_0$, and the realised $R_0$ is $\beta$ times the relative $R_0$ $\lambda(\sigma, \alpha)$ plotted in the eigenvalue figure. That makes both figures a matter of choosing $\beta$: fix it at 0.9 for the first, or set it to $3 / \lambda$ for the second.
 
 ```{r}
 # relative R0 for each (sigma, alpha): the quantity plotted in the eigenvalue
@@ -106,16 +101,17 @@ add_final_size <- function(data) {
     )
 }
 
-# panel A: beta fixed, so the realised R0 rises with sigma
-panel_a_data <- lambda_grid |>
+# homogeneous R0 held constant: beta fixed, so the realised R0 rises with sigma
+homogeneous_data <- lambda_grid |>
   mutate(
     beta = r0_homogeneous,
     realised = beta * lambda
   ) |>
   add_final_size()
 
-# panel B: beta lowered as sigma rises, holding the realised R0 at its target
-panel_b_data <- lambda_grid |>
+# realised R0 held constant: beta lowered as sigma rises, holding the realised
+# R0 at its target
+realised_data <- lambda_grid |>
   mutate(
     beta = r0_realised / lambda,
     realised = r0_realised
@@ -123,23 +119,21 @@ panel_b_data <- lambda_grid |>
   add_final_size()
 ```
 
-## The figure
+## The figures
 
 ```{r}
-# the final size panel: the top three quarters of each column. Its x axis is
-# suppressed, because it shares the R0 strip's axis directly below it
-final_size_panel <- function(data, title, tag) {
+# panel A, the R0 this figure lets move, one line per alpha: the top two fifths
+# of each figure. Its x axis is suppressed, because it shares the final size
+# panel's axis directly below it. The R0 it holds fixed is given in the caption
+# rather than drawn
+r0_panel <- function(data, y_label) {
   data |>
-    ggplot(aes(x = sigma, y = final_size, colour = alpha)) +
+    ggplot(aes(x = sigma, y = r0, colour = alpha)) +
+    geom_hline(yintercept = 1, linetype = "dotted", colour = "grey70") +
     geom_line(linewidth = 0.8) +
-    scale_colour_manual(values = alpha_colours) +
-    scale_y_continuous(labels = scales::label_percent()) +
-    labs(
-      y = "Overall final size",
-      colour = expression("Assortativity (" * alpha * ")"),
-      title = title,
-      tag = tag
-    ) +
+    scale_colour_manual(values = alpha_colours, guide = "none") +
+    expand_limits(y = 0) +
+    labs(y = y_label) +
     theme_minimal() +
     theme(
       axis.title.x = element_blank(),
@@ -147,96 +141,71 @@ final_size_panel <- function(data, title, tag) {
     )
 }
 
-# the R0 strip below it: `varying` is the R0 this panel lets move (coloured by
-# alpha), `constant` the one it holds fixed (one grey line, not one per alpha)
-r0_panel <- function(varying, constant, varying_type, constant_type,
-                     show_legend = FALSE) {
-  ggplot() +
-    geom_hline(yintercept = 1, linetype = "dotted", colour = "grey70") +
-    geom_line(
-      data = varying,
-      aes(x = sigma, y = r0, colour = alpha, linetype = varying_type),
-      linewidth = 0.7
-    ) +
-    geom_line(
-      data = constant,
-      aes(x = sigma, y = r0, linetype = constant_type),
-      colour = constant_colour,
-      linewidth = 0.7
-    ) +
-    scale_colour_manual(values = alpha_colours, guide = "none") +
-    scale_linetype_manual(
-      values = r0_linetypes,
-      name = NULL,
-      limits = names(r0_linetypes)
-    ) +
-    # the two strips would otherwise contribute two identical line type
-    # legends, which patchwork does not merge, so only one of them draws it
-    guides(linetype = if (show_legend) {
-      guide_legend(
-        override.aes = list(colour = constant_colour, linewidth = 0.7)
-      )
-    } else {
-      "none"
-    }) +
+# panel B, the final size, below it. `y_limits` optionally fixes the y axis
+# range (NULL lets ggplot choose)
+final_size_panel <- function(data, y_limits = NULL) {
+  data |>
+    ggplot(aes(x = sigma, y = final_size, colour = alpha)) +
+    geom_line(linewidth = 0.8) +
+    scale_colour_manual(values = alpha_colours) +
+    scale_y_continuous(labels = scales::label_percent(), limits = y_limits) +
     labs(
       x = expression("Activity heterogeneity (" * sigma * ")"),
-      y = expression(R[0])
+      y = "Overall final size",
+      colour = expression("Assortativity (" * alpha * ")")
     ) +
     theme_minimal()
 }
 
-column_a <- final_size_panel(
-  panel_a_data,
-  bquote("Homogeneous " * R[0] * " held at " * .(r0_homogeneous)),
-  "A"
+# homogeneous R0 held constant, with the realised R0 free (main text)
+homogeneous_plot <- r0_panel(
+  mutate(homogeneous_data, r0 = realised),
+  y_label = expression(R[0])
 ) /
-  r0_panel(
-    varying = mutate(panel_a_data, r0 = realised),
-    constant = tibble(sigma = sigma_grid, r0 = r0_homogeneous),
-    varying_type = "Realised",
-    constant_type = "Homogeneous",
-    show_legend = TRUE
-  ) +
-  plot_layout(heights = c(3, 1))
+  final_size_panel(homogeneous_data) +
+  plot_layout(heights = c(2, 3), guides = "collect") +
+  plot_annotation(tag_levels = "A")
 
-column_b <- final_size_panel(
-  panel_b_data,
-  bquote("Realised " * R[0] * " held at " * .(r0_realised)),
-  "B"
-) /
-  r0_panel(
-    varying = mutate(panel_b_data, r0 = beta),
-    constant = tibble(sigma = sigma_grid, r0 = r0_realised),
-    varying_type = "Homogeneous",
-    constant_type = "Realised"
-  ) +
-  plot_layout(heights = c(3, 1))
+homogeneous_plot
 
-final_size_plot <- (column_a | column_b) +
-  plot_layout(guides = "collect")
-
-final_size_plot
-
-ggsave("figures/final_size_vs_sigma.png",
-       plot = final_size_plot,
+ggsave("figures/final_size_vs_sigma_homogeneous.png",
+       plot = homogeneous_plot,
        bg = "white",
-       width = 11,
-       height = 6,
+       width = 7,
+       height = 7.5,
+       dpi = 300)
+
+# realised R0 held constant, with the homogeneous R0 free (supplement). The
+# final size spans most of the range here, so show the full 0-100% axis
+realised_plot <- r0_panel(
+  mutate(realised_data, r0 = beta),
+  y_label = expression("Homogeneous " * R[0])
+) /
+  final_size_panel(realised_data, y_limits = c(0, 1)) +
+  plot_layout(heights = c(2, 3), guides = "collect") +
+  plot_annotation(tag_levels = "A")
+
+realised_plot
+
+ggsave("figures/final_size_vs_sigma_realised.png",
+       plot = realised_plot,
+       bg = "white",
+       width = 7,
+       height = 7.5,
        dpi = 300)
 ```
 
-The numbers behind the curves, at four values of $\sigma$.
+The numbers behind the curves, at a selection of values of $\sigma$.
 
 ```{r}
 bind_rows(
-  `Homogeneous R0 = 0.9` = panel_a_data,
-  `Realised R0 = 3` = panel_b_data,
-  .id = "Panel"
+  `Homogeneous R0 = 0.9` = homogeneous_data,
+  `Realised R0 = 3` = realised_data,
+  .id = "Figure"
 ) |>
-  filter(sigma %in% c(0.25, 0.5, 0.75, 1)) |>
+  filter(sigma %in% c(0.25, 0.5, 1, 1.5)) |>
   transmute(
-    Panel,
+    Figure,
     sigma,
     alpha,
     `Homogeneous R0` = round(beta, 3),
